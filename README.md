@@ -1,6 +1,12 @@
-# Công Cụ Tìm Kiếm Gmail
+# Gmail Agent
 
-Một dự án Python để tìm kiếm email trong tài khoản Gmail của bạn với các tính năng tìm kiếm và phân tích nâng cao.
+Một dự án Python để tìm kiếm và phân tích email trong tài khoản Gmail của bạn với các tính năng AI nâng cao.
+
+## Cập Nhật Mới (Tháng 9, 2025)
+
+- **Xử Lý Email Gitlab**: Tính năng mới để phân tích các email pipeline từ Gitlab
+- **Kiểm Tra URL Pipeline**: Khả năng kiểm tra trạng thái truy cập của các URL pipeline trong email thông báo thất bại
+- **Hiển Thị Prompt Phân Tích**: Hiển thị prompt đã sử dụng trong kết quả phân tích và đặt ở đầu file JSON kết quả
 
 ## Cấu Trúc Dự Án
 
@@ -8,7 +14,11 @@ Dự án được tổ chức thành các module riêng biệt để dễ bảo 
 
 - `gmail_auth.py` - Chứa các chức năng xác thực cho Gmail API
 - `gmail_operations.py` - Chứa chức năng tìm kiếm và truy xuất email
-- `ai_interface.py` - Chứa các chức năng phân tích email bằng AI
+- `email_ai.py` - Chức năng AI cơ bản cho phân tích email
+- `ai_interface.py` - Giao diện chức năng phân tích email bằng AI
+- `ai_models.py` - Tích hợp với các API mô hình AI bên ngoài
+- `prompt_ai.py` - Xử lý prompt và định dạng kết quả phân tích
+- `gitlab_email_handler.py` - Xử lý chuyên biệt cho email từ Gitlab
 - `main.py` - Chương trình chính tích hợp các module khác
 
 ## Cài Đặt Ban Đầu
@@ -24,12 +34,24 @@ Dự án được tổ chức thành các module riêng biệt để dễ bảo 
 pip install -r requirements.txt
 ```
 
+Hoặc cài đặt trực tiếp từ mã nguồn:
+
+```bash
+pip install -e .
+```
+
 ## Sử Dụng
 
 Chạy script:
 
 ```bash
-python main.py
+python -m gmail_agent.main
+```
+
+Hoặc nếu đã cài đặt qua setup.py:
+
+```bash
+gmail-agent
 ```
 
 Lần đầu tiên chạy script, nó sẽ mở cửa sổ trình duyệt để xác thực với tài khoản Google của bạn.
@@ -37,12 +59,23 @@ Sau khi xác thực, bạn có thể sử dụng các chức năng tìm kiếm v
 
 ## Tính Năng
 
-- Xác thực với Gmail API sử dụng OAuth2
-- Tìm kiếm email theo người gửi
-- Tìm kiếm email theo từ khóa
-- Phân tích email bằng AI
-- Hiển thị chi tiết email bao gồm tiêu đề, ngày tháng và tóm tắt
-- Xử lý phân trang cho các bộ sưu tập email lớn
+- **Xác thực với Gmail API** sử dụng OAuth2
+- **Tìm kiếm email** theo từ khóa hoặc nhãn (label)
+- **Phân tích email bằng AI** với prompt tùy chỉnh
+- **Xử lý email Gitlab**:
+  - Tìm email thông báo pipeline Gitlab
+  - Phân tích email thông báo pipeline thất bại
+  - Kiểm tra khả năng truy cập URL pipeline
+- **Phân tích nội dung email**:
+  - Tóm tắt nội dung
+  - Trích xuất từ khóa quan trọng
+  - Xác định hành động cần thực hiện
+  - Phân tích thêm chi tiết về email
+- **Lưu kết quả phân tích** vào file JSON với prompt ở đầu file
+
+## Môi Trường
+
+Dự án yêu cầu Python 3.8 trở lên và sử dụng các API của OpenAI hoặc Google Gemini (có thể cấu hình trong file .env).
 
 ## Yêu Cầu
 
@@ -53,3 +86,8 @@ Xem requirements.txt để biết các thư viện phụ thuộc:
 - nltk
 - scikit-learn
 - numpy
+- openai
+- google-generativeai
+- python-dotenv
+- requests
+- beautifulsoup4

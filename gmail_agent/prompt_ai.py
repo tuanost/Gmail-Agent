@@ -93,6 +93,11 @@ def format_analysis_result(result):
     """
     output = "===== KẾT QUẢ PHÂN TÍCH EMAIL =====\n\n"
 
+    # Hiển thị prompt được sử dụng cho phân tích ở đầu kết quả
+    if "prompt_su_dung" in result:
+        output += "🔍 PROMPT ĐÃ SỬ DỤNG:\n"
+        output += f"{result['prompt_su_dung']}\n\n"
+
     # Hiển thị thông tin về chuỗi hội thoại nếu có
     if "subject" in result:
         output += f"📧 CHỦ ĐỀ: {result['subject']}\n"
@@ -162,8 +167,21 @@ def save_analysis_result(result, file_name):
 
     file_path = os.path.join("email_analysis_results", file_name)
 
+    # Sắp xếp để đảm bảo prompt_su_dung nằm ở đầu file JSON
+    from collections import OrderedDict
+    ordered_result = OrderedDict()
+
+    # Đặt prompt_su_dung lên đầu nếu có
+    if "prompt_su_dung" in result:
+        ordered_result["prompt_su_dung"] = result["prompt_su_dung"]
+
+    # Thêm các trường khác vào OrderedDict
+    for key, value in result.items():
+        if key != "prompt_su_dung":  # Bỏ qua vì đã thêm ở trên
+            ordered_result[key] = value
+
     with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(result, f, ensure_ascii=False, indent=2)
+        json.dump(ordered_result, f, ensure_ascii=False, indent=2)
 
     return file_path
 
