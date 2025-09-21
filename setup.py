@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="gmail-agent",
-    version="0.2.0",  # Bumped version for new features
+    version="0.3.0",  # Bumped version for code optimizations and improvements
     author="TuanNS2",
     author_email="tuanost@gmail.com",
     description="Gmail Agent with AI analysis capabilities",
@@ -17,18 +17,23 @@ setup(
     ],
     python_requires=">=3.8",
     install_requires=[
-        "google-auth-oauthlib>=1.0.0",
         "google-api-python-client>=2.86.0",
         "google-auth-httplib2>=0.1.0",
+        "google-auth-oauthlib>=1.0.0",
         "nltk>=3.8.1",
         "scikit-learn>=1.3.0",
         "numpy>=1.25.2",
-        "scipy>=1.11.2",
-        "openai>=1.0.0",
         "google-generativeai>=0.3.0",
         "python-dotenv>=1.0.0",
         "requests>=2.31.0",
         "beautifulsoup4>=4.13.0",
+        "types-requests>=2.31.0",
+        "mypy-extensions>=1.0.0",
+        "typing-extensions>=4.5.0",
+        "urllib3>=2.0.0",
+        "certifi>=2023.5.7",
+        "charset-normalizer>=3.1.0",
+        "idna>=3.4",
     ],
     entry_points={
         "console_scripts": [

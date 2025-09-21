@@ -6,14 +6,20 @@ Module này cung cấp các chức năng để xử lý email dựa trên các p
 import re
 import json
 import os
+import logging
+from typing import Dict, Any, List, Optional, Union
 from datetime import datetime
 from dotenv import load_dotenv
 
 # Import lớp AIModelService để sử dụng các API mô hình AI
 from gmail_agent.ai_models import AIModelService
 
-# Import các hàm cần thiết từ email_ai - chỉ giữ lại những hàm thực sự cần
-from gmail_agent.email_ai import extract_entities, summarize_text, extract_action_items, extract_email_body
+# Import các hàm cần thiết từ email_ai
+from gmail_agent.email_ai import extract_email_body
+
+# Thiết lập logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # Tải các biến môi trường
 load_dotenv()
@@ -21,17 +27,19 @@ load_dotenv()
 # Cấu hình mô hình AI mặc định từ biến môi trường hoặc sử dụng Gemini nếu không được cấu hình
 DEFAULT_AI_PROVIDER = os.getenv("DEFAULT_AI_PROVIDER", "gemini")
 
-def analyze_email_with_prompt(email_body, prompt):
+def analyze_email_with_prompt(email_body: str, prompt: str) -> Dict[str, Any]:
     """
-    Phân tích email dựa trên prompt từ người dùng sử dụng mô hình AI thực tế.
+    Phân tích email dựa trên prompt từ người dùng sử dụng mô hình AI.
 
-    Tham số:
+    Args:
         email_body: Nội dung email cần phân tích
         prompt: Câu lệnh từ người dùng mô tả cách phân tích
 
-    Trả về:
+    Returns:
         Kết quả phân tích dựa trên prompt
     """
+    logger.info(f"Đang phân tích email với prompt: {prompt[:50]}...")
+
     try:
         # Tạo đối tượng AIModelService với nhà cung cấp mô hình từ cấu hình
         ai_service = AIModelService(model_provider=DEFAULT_AI_PROVIDER)
@@ -39,56 +47,52 @@ def analyze_email_with_prompt(email_body, prompt):
         # Gửi nội dung email và prompt đến mô hình AI để phân tích
         result = ai_service.analyze_email(email_body, prompt)
 
+        # Lưu prompt đã sử dụng vào kết quả để tham khảo sau này
+        result["prompt_su_dung"] = prompt
+
         # Kiểm tra lỗi
         if result.get("error", False):
-            print(f"Lỗi khi sử dụng API AI: {result.get('message', 'Lỗi không xác định')}")
+            logger.error(f"Lỗi khi sử dụng API AI: {result.get('message', 'Lỗi không xác định')}")
             # Fallback: Sử dụng phương thức phân tích cục bộ nếu gọi API thất bại
             return _legacy_analyze_email(email_body, prompt)
 
+        logger.info("Đã phân tích email thành công")
         return result
 
     except Exception as e:
-        print(f"Lỗi khi phân tích email với AI: {str(e)}")
+        logger.exception(f"Lỗi khi phân tích email với AI: {str(e)}")
         # Fallback: Sử dụng phương thức phân tích cục bộ
         return _legacy_analyze_email(email_body, prompt)
 
-# Các hàm legacy để sử dụng khi API AI không khả dụng
-def _legacy_analyze_email(email_body, prompt):
-    """Phiên bản cũ của hàm phân tích email để sử dụng khi API AI gặp lỗi."""
-    if re.search(r'tóm tắt|tổng kết|summary', prompt.lower()):
-        # Thực hiện tóm tắt nội dung
-        summary = summarize_text(email_body, num_sentences=5)
+def _legacy_analyze_email(email_body: str, prompt: str) -> Dict[str, Any]:
+    """
+    Phiên bản cũ của hàm phân tích email để sử dụng khi API AI gặp lỗi.
 
-        # Trích xuất các từ khóa quan trọng
-        entities = extract_entities(email_body)
-        keywords = []
-        for name in entities['potential_names']:
-            keywords.append(name)
+    Args:
+        email_body: Nội dung email cần phân tích
+        prompt: Prompt người dùng yêu cầu
 
-        # Trích xuất các mục hành động
-        action_items = extract_action_items(email_body)
+    Returns:
+        Kết quả phân tích đơn giản
+    """
+    logger.warning("Sử dụng phân tích legacy vì không thể kết nối đến API AI")
 
-        # Định dạng kết quả
-        result = {
-            "summary": summary,
-            "important_keywords": keywords[:10],  # Giới hạn 10 từ khóa
-            "action_items": action_items
-        }
+    # Mặc định xử lý chung
+    result = {
+        "prompt_su_dung": prompt,
+        "phan_tich_them": "Không thể kết nối tới API AI. Đây là phân tích cục bộ đơn giản."
+    }
 
-        return result
-    else:
-        # Mặc định xử lý chung
-        summary = summarize_text(email_body)
-        return {"summary": summary}
+    return result
 
-def format_analysis_result(result):
+def format_analysis_result(result: Dict[str, Any]) -> str:
     """
     Định dạng kết quả phân tích để hiển thị cho người dùng.
 
-    Tham số:
+    Args:
         result: Kết quả phân tích từ hàm analyze_email_with_prompt
 
-    Trả về:
+    Returns:
         Chuỗi đã định dạng để hiển thị
     """
     output = "===== KẾT QUẢ PHÂN TÍCH EMAIL =====\n\n"
@@ -105,97 +109,130 @@ def format_analysis_result(result):
     if "message_count" in result:
         output += f"📊 SỐ TIN NHẮN: {result['message_count']}\n\n"
 
-    if "summary" in result:
-        output += "📝 TÓM TẮT:\n"
-        output += result["summary"]
-        output += "\n\n"
-
-    if "tom_tat" in result:
-        output += "📝 TÓM TẮT:\n"
-        output += result["tom_tat"]
-        output += "\n\n"
-
-    if "important_keywords" in result and result["important_keywords"]:
-        output += "🔑 TỪ KHÓA QUAN TRỌNG:\n"
-        for keyword in result["important_keywords"]:
-            output += f"  • {keyword}\n"
-        output += "\n"
-
-    if "tu_khoa_quan_trong" in result and result["tu_khoa_quan_trong"]:
-        output += "🔑 TỪ KHÓA QUAN TRỌNG:\n"
-        for keyword in result["tu_khoa_quan_trong"]:
-            output += f"  • {keyword}\n"
-        output += "\n"
-
-    if "action_items" in result and result["action_items"]:
-        output += "✅ HÀNH ĐỘNG CẦN THỰC HIỆN:\n"
-        for action in result["action_items"]:
-            output += f"  • {action}\n"
-        output += "\n"
-
-    if "hanh_dong" in result and result["hanh_dong"]:
-        output += "✅ HÀNH ĐỘNG CẦN THỰC HIỆN:\n"
-        for action in result["hanh_dong"]:
-            output += f"  • {action}\n"
-        output += "\n"
-
+    # Phân tích
     if "phan_tich_them" in result and result["phan_tich_them"]:
-        output += "📌 PHÂN TÍCH THÊM:\n"
-        if isinstance(result["phan_tich_them"], str):
-            output += result["phan_tich_them"] + "\n\n"
-        elif isinstance(result["phan_tich_them"], list):
-            for item in result["phan_tich_them"]:
-                output += f"  • {item}\n"
-            output += "\n"
-        elif isinstance(result["phan_tich_them"], dict):
-            for key, value in result["phan_tich_them"].items():
-                output += f"  • {key}: {value}\n"
-            output += "\n"
+        output += "📌 PHÂN TÍCH:\n"
+        output += _format_analysis_content(result["phan_tich_them"])
+
+    # Thêm các trường phân tích hội thoại nếu có
+    _append_conversation_analysis(result, output)
 
     return output
 
-def save_analysis_result(result, file_name):
+def _format_analysis_content(content: Union[str, List[str], Dict[str, Any]]) -> str:
+    """
+    Định dạng nội dung phân tích dựa trên loại dữ liệu.
+
+    Args:
+        content: Nội dung phân tích (chuỗi, danh sách hoặc dictionary)
+
+    Returns:
+        Chuỗi đã định dạng
+    """
+    formatted_output = ""
+
+    if isinstance(content, str):
+        formatted_output = content + "\n\n"
+    elif isinstance(content, list):
+        for item in content:
+            formatted_output += f"  • {item}\n"
+        formatted_output += "\n"
+    elif isinstance(content, dict):
+        for key, value in content.items():
+            formatted_output += f"  • {key}: {value}\n"
+        formatted_output += "\n"
+
+    return formatted_output
+
+def _append_conversation_analysis(result: Dict[str, Any], output: str) -> None:
+    """
+    Thêm các trường phân tích hội thoại vào output nếu có.
+
+    Args:
+        result: Kết quả phân tích
+        output: Chuỗi output để thêm vào
+    """
+    conversation_fields = {
+        "chu_de_chinh": "CHỦ ĐỀ CHÍNH",
+        "dien_bien": "DIỄN BIẾN HỘI THOẠI",
+        "nguoi_tham_gia": "NGƯỜI THAM GIA",
+        "cac_van_de": "CÁC VẤN ĐỀ",
+        "ket_luan": "KẾT LUẬN"
+    }
+
+    for field, title in conversation_fields.items():
+        if field in result and result[field]:
+            output += f"📝 {title}:\n"
+            output += _format_analysis_content(result[field])
+
+def save_analysis_result(result: Dict[str, Any], file_name: str) -> str:
     """
     Lưu kết quả phân tích vào một file JSON.
 
-    Tham số:
+    Args:
         result: Kết quả phân tích
         file_name: Tên file để lưu kết quả
+
+    Returns:
+        Đường dẫn đến file đã lưu
     """
     # Đảm bảo thư mục tồn tại
-    os.makedirs("email_analysis_results", exist_ok=True)
+    output_dir = "email_analysis_results"
+    os.makedirs(output_dir, exist_ok=True)
 
-    file_path = os.path.join("email_analysis_results", file_name)
+    file_path = os.path.join(output_dir, file_name)
 
-    # Sắp xếp để đảm bảo prompt_su_dung nằm ở đầu file JSON
-    from collections import OrderedDict
-    ordered_result = OrderedDict()
+    try:
+        # Sắp xếp để đảm bảo prompt_su_dung nằm ở đầu file JSON
+        from collections import OrderedDict
+        ordered_result = OrderedDict()
 
-    # Đặt prompt_su_dung lên đầu nếu có
-    if "prompt_su_dung" in result:
-        ordered_result["prompt_su_dung"] = result["prompt_su_dung"]
+        # Đặt prompt_su_dung lên đầu nếu có
+        if "prompt_su_dung" in result:
+            ordered_result["prompt_su_dung"] = result["prompt_su_dung"]
 
-    # Thêm các trường khác vào OrderedDict
-    for key, value in result.items():
-        if key != "prompt_su_dung":  # Bỏ qua vì đã thêm ở trên
-            ordered_result[key] = value
+        # Thêm các trường khác vào OrderedDict
+        for key, value in result.items():
+            if key != "prompt_su_dung":  # Bỏ qua vì đã thêm ở trên
+                ordered_result[key] = value
 
-    with open(file_path, 'w', encoding='utf-8') as f:
-        json.dump(ordered_result, f, ensure_ascii=False, indent=2)
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(ordered_result, f, ensure_ascii=False, indent=2)
 
-    return file_path
+        logger.info(f"Đã lưu kết quả phân tích vào: {file_path}")
+        return file_path
 
-def highlight_keywords_in_text(text, keywords):
+    except Exception as e:
+        logger.error(f"Lỗi khi lưu kết quả phân tích: {str(e)}")
+        return ""
+
+def generate_analysis_filename(prefix: str = "email_analysis") -> str:
+    """
+    Tạo tên file có dấu thời gian cho phân tích email.
+
+    Args:
+        prefix: Tiền tố cho tên file
+
+    Returns:
+        Tên file có dấu thời gian
+    """
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{prefix}_{timestamp}.json"
+
+def highlight_keywords_in_text(text: str, keywords: List[str]) -> str:
     """
     Làm nổi bật từ khóa trong văn bản.
 
-    Tham số:
+    Args:
         text: Văn bản cần làm nổi bật
         keywords: Danh sách các từ khóa cần làm nổi bật
 
-    Trả về:
+    Returns:
         Văn bản với các từ khóa được làm nổi bật
     """
+    if not text or not keywords:
+        return text
+
     highlighted_text = text
 
     for keyword in keywords:

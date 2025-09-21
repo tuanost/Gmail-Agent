@@ -7,25 +7,41 @@ Hỗ trợ tiếng Việt.
 
 import re
 import nltk
+import logging
+import base64
+import html
+import string
+from typing import Dict, List, Set, Any, Optional, Union, Tuple
+import numpy as np
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize, sent_tokenize
 from sklearn.feature_extraction.text import TfidfVectorizer
 from collections import Counter
-import base64
-import html
-import numpy as np
-import string
 
-# Tải các tài nguyên NLTK cần thiết khi chạy lần đầu
-try:
-    nltk.data.find('tokenizers/punkt')
-    nltk.data.find('corpora/stopwords')
-except LookupError:
-    nltk.download('punkt')
-    nltk.download('stopwords')
+# Thiết lập logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+
+# Tải các tài nguyên NLTK cần thiết
+def _load_nltk_resources() -> None:
+    """
+    Tải các tài nguyên cần thiết từ NLTK.
+    Gọi hàm này trước khi sử dụng các hàm xử lý ngôn ngữ.
+    """
+    try:
+        nltk.data.find('tokenizers/punkt')
+        nltk.data.find('corpora/stopwords')
+    except LookupError:
+        logger.info("Đang tải các tài nguyên NLTK...")
+        nltk.download('punkt')
+        nltk.download('stopwords')
+        logger.info("Đã tải xong các tài nguyên NLTK")
+
+# Gọi hàm tải tài nguyên
+_load_nltk_resources()
 
 # Từ dừng tiếng Việt (các từ phổ biến cần lọc ra)
-VIETNAMESE_STOPWORDS = {
+VIETNAMESE_STOPWORDS: Set[str] = {
     'và', 'là', 'của', 'có', 'được', 'không', 'các', 'những', 'một', 'để', 'cho',
     'với', 'trong', 'này', 'đó', 'về', 'từ', 'khi', 'theo', 'tại', 'cũng', 'như',
     'đến', 'vào', 'sẽ', 'nên', 'đã', 'nhưng', 'vì', 'từng', 'nếu', 'thì', 'rằng',
@@ -35,32 +51,67 @@ VIETNAMESE_STOPWORDS = {
     'họ', 'mọi', 'điều', 'việc', 'thêm', 'quá', 'đi', 'chúng', 'ấy', 'ngay', 'thật', 'sự'
 }
 
-def decode_email_body(email_data):
-    """Giải mã nội dung email từ base64 nếu cần."""
+def decode_email_body(email_data: str) -> str:
+    """
+    Giải mã nội dung email từ base64 và xử lý HTML.
+
+    Args:
+        email_data: Chuỗi dữ liệu email đã được mã hóa base64
+
+    Returns:
+        Nội dung email đã được giải mã và làm sạch HTML
+    """
     if not email_data:
         return ""
 
     try:
-        # Thử giải mã base64
+        # Giải mã base64
         decoded_bytes = base64.urlsafe_b64decode(email_data)
         text = decoded_bytes.decode('utf-8')
 
-        # Loại bỏ thẻ HTML
-        text = re.sub('<[^<]+?>', '', text)
-
-        # Giải mã các thực thể HTML
-        text = html.unescape(text)
-
+        # Làm sạch HTML
+        text = clean_html_content(text)
         return text
-    except:
+    except Exception as e:
+        logger.error(f"Lỗi khi giải mã nội dung email: {str(e)}")
         return ""
 
-def extract_email_body(message):
-    """Trích xuất và giải mã nội dung email từ một tin nhắn API Gmail."""
+def clean_html_content(html_content: str) -> str:
+    """
+    Loại bỏ các thẻ HTML và giải mã các thực thể HTML.
+
+    Args:
+        html_content: Chuỗi HTML cần làm sạch
+
+    Returns:
+        Chuỗi văn bản đã làm sạch
+    """
+    # Loại bỏ thẻ HTML
+    text = re.sub('<[^<]+?>', '', html_content)
+
+    # Giải mã các thực thể HTML
+    text = html.unescape(text)
+
+    # Loại bỏ khoảng trắng thừa
+    text = re.sub(r'\s+', ' ', text).strip()
+
+    return text
+
+def extract_email_body(message: Dict[str, Any]) -> str:
+    """
+    Trích xuất và giải mã nội dung email từ một tin nhắn API Gmail.
+
+    Args:
+        message: Đối tượng tin nhắn từ Gmail API
+
+    Returns:
+        Nội dung email đã được giải mã
+    """
     parts = []
 
     # Hàm để đệ quy trích xuất các phần
-    def get_parts(payload):
+    def get_parts(payload: Dict[str, Any]) -> None:
+        """Đệ quy qua các phần của email để trích xuất nội dung."""
         if 'parts' in payload:
             for part in payload['parts']:
                 get_parts(part)
@@ -73,42 +124,47 @@ def extract_email_body(message):
     if 'payload' in message:
         get_parts(message['payload'])
 
-    # Nếu có nhiều phần, nối chúng lại
+    # Xử lý các phần đã trích xuất
     if parts:
         combined_content = ''.join(parts)
         return decode_email_body(combined_content)
 
-    # Nếu không có phần nào, thử lấy snippet
+    # Fallback: nếu không có phần nào, thử lấy snippet
     if 'snippet' in message:
         return message['snippet']
 
     return ""
 
-def summarize_text(text, num_sentences=3):
+def summarize_text(text: str, num_sentences: int = 3) -> str:
     """
     Tóm tắt văn bản sử dụng thuật toán TF-IDF.
     Hỗ trợ tiếng Việt.
 
-    Tham số:
+    Args:
         text: Văn bản cần tóm tắt
         num_sentences: Số câu trong tóm tắt
 
-    Trả về:
+    Returns:
         Chuỗi tóm tắt
     """
     # Kiểm tra đầu vào
     if not text or not text.strip():
+        logger.warning("Nhận được văn bản trống để tóm tắt")
         return "Không có nội dung để tóm tắt."
 
-    # Phân tách thành các câu
-    sentences = sent_tokenize(text)
-
-    if len(sentences) <= num_sentences:
-        return text
-
-    # Tạo ma trận TF-IDF
-    vectorizer = TfidfVectorizer(stop_words=list(VIETNAMESE_STOPWORDS))
     try:
+        # Phân tách thành các câu
+        sentences = sent_tokenize(text)
+
+        # Nếu số câu ít hơn hoặc bằng yêu cầu, trả về nguyên văn
+        if len(sentences) <= num_sentences:
+            return text
+
+        # Tạo ma trận TF-IDF với các từ dừng tiếng Việt và tiếng Anh
+        combined_stopwords = list(VIETNAMESE_STOPWORDS)
+        combined_stopwords.extend(stopwords.words('english'))
+        vectorizer = TfidfVectorizer(stop_words=combined_stopwords)
+
         # Tính toán ma trận TF-IDF
         tfidf_matrix = vectorizer.fit_transform(sentences)
 
@@ -125,41 +181,75 @@ def summarize_text(text, num_sentences=3):
 
         return summary
 
-    except ValueError:
-        # Nếu có lỗi, trả về các câu đầu tiên
+    except Exception as e:
+        logger.error(f"Lỗi khi tóm tắt văn bản: {str(e)}")
+        # Fallback: trả về các câu đầu tiên
+        sentences = sent_tokenize(text)
         return ' '.join(sentences[:num_sentences])
 
-def extract_entities(text):
+def extract_entities(text: str) -> Dict[str, List[str]]:
     """
     Trích xuất các thực thể có thể có (tên người, tổ chức, địa điểm) từ văn bản.
     Phương pháp đơn giản dựa trên từ viết hoa.
 
-    Tham số:
+    Args:
         text: Văn bản cần trích xuất thực thể
 
-    Trả về:
+    Returns:
         Dictionary chứa các thực thể đã trích xuất
     """
     if not text:
+        logger.warning("Nhận được văn bản trống để trích xuất thực thể")
         return {"potential_names": [], "potential_locations": [], "potential_organizations": []}
 
-    # Danh sách các từ dừng mở rộng bao gồm cả các từ tiếng Việt thường dùng
-    stop_words = list(VIETNAMESE_STOPWORDS) + list(stopwords.words('english'))
+    try:
+        # Danh sách các từ dừng mở rộng bao gồm cả các từ tiếng Việt và tiếng Anh
+        stop_words = list(VIETNAMESE_STOPWORDS) + list(stopwords.words('english'))
 
-    # Tiền xử lý
-    text = text.replace('\n', ' ')
+        # Tiền xử lý văn bản
+        text = text.replace('\n', ' ')
+        text = clean_html_content(text)
 
-    # Tách thành các từ
-    words = word_tokenize(text)
+        # Tách thành các từ
+        words = word_tokenize(text)
 
-    # Tìm các cụm từ viết hoa
+        # Tìm các cụm từ viết hoa
+        potential_entities = extract_capitalized_phrases(words, stop_words)
+
+        # Sử dụng Counter để đếm tần suất xuất hiện
+        entity_counter = Counter(potential_entities)
+
+        # Phân loại thực thể (đơn giản)
+        entities = categorize_entities(entity_counter)
+
+        return entities
+
+    except Exception as e:
+        logger.error(f"Lỗi khi trích xuất thực thể: {str(e)}")
+        return {"potential_names": [], "potential_locations": [], "potential_organizations": []}
+
+def extract_capitalized_phrases(words: List[str], stop_words: List[str]) -> List[str]:
+    """
+    Trích xuất các cụm từ viết hoa từ danh sách các từ.
+
+    Args:
+        words: Danh sách các từ đã được tách
+        stop_words: Danh sách các từ dừng để bỏ qua
+
+    Returns:
+        Danh sách các cụm từ viết hoa tiềm năng
+    """
     potential_entities = []
     i = 0
+
     while i < len(words):
-        if words[i] and words[i][0].isupper():
+        # Kiểm tra nếu từ bắt đầu bằng chữ hoa
+        if words[i] and len(words[i]) > 0 and words[i][0].isupper():
             entity = words[i]
             j = i + 1
-            while j < len(words) and words[j] and words[j][0].isupper():
+
+            # Tìm các từ liền kề cũng viết hoa để tạo thành cụm từ
+            while j < len(words) and words[j] and len(words[j]) > 0 and words[j][0].isupper():
                 entity += ' ' + words[j]
                 j += 1
 
@@ -170,28 +260,33 @@ def extract_entities(text):
         else:
             i += 1
 
-    # Sử dụng Counter để đếm tần suất xuất hiện
-    entity_counter = Counter(potential_entities)
+    return potential_entities
 
-    # Lọc các thực thể xuất hiện nhiều lần hoặc có độ dài lớn
-    filtered_entities = [entity for entity, count in entity_counter.items()
-                         if count > 1 or len(entity.split()) > 1]
+def categorize_entities(entity_counter: Counter) -> Dict[str, List[str]]:
+    """
+    Phân loại các thực thể thành các nhóm.
 
-    # Phân loại thực thể một cách đơn giản
-    potential_names = []
-    potential_locations = []
-    potential_organizations = []
+    Args:
+        entity_counter: Counter chứa các thực thể và tần suất của chúng
 
-    location_indicators = ['Phố', 'Đường', 'Quận', 'Huyện', 'Thành phố', 'TP', 'Tỉnh', 'Làng']
-    org_indicators = ['Công ty', 'Tổ chức', 'Đại học', 'Trường', 'Viện', 'Ban', 'Nhóm']
+    Returns:
+        Dictionary phân loại thực thể
+    """
+    # Lọc các thực thể xuất hiện nhiều hoặc có độ dài lớn
+    significant_entities = [entity for entity, count in entity_counter.items()
+                           if count > 1 or len(entity.split()) > 1]
 
-    for entity in filtered_entities:
-        if any(entity.startswith(indicator) for indicator in org_indicators):
-            potential_organizations.append(entity)
-        elif any(entity.startswith(indicator) for indicator in location_indicators):
-            potential_locations.append(entity)
-        else:
-            potential_names.append(entity)
+    # Phân loại thô (có thể cải thiện bằng NER trong tương lai)
+    potential_names = significant_entities.copy()
+    potential_organizations = [entity for entity in significant_entities
+                              if any(term in entity.lower() for term in ['công ty', 'tổ chức', 'company', 'corp', 'inc', 'ltd'])]
+    potential_locations = [entity for entity in significant_entities
+                          if any(term in entity.lower() for term in ['đường', 'quận', 'thành phố', 'tỉnh', 'street', 'road', 'city'])]
+
+    # Loại bỏ các thực thể đã được phân loại cụ thể khỏi danh sách names
+    for entity in potential_organizations + potential_locations:
+        if entity in potential_names:
+            potential_names.remove(entity)
 
     return {
         "potential_names": potential_names,

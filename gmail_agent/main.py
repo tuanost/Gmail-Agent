@@ -11,19 +11,19 @@ def main():
     while True:
         print("\n===== GMAIL AGENT =====")
         print("1. Phân tích email bằng AI")
-        print("2. Thoát")
+        print("0. Thoát")
 
-        choice = input("\nNhập lựa chọn của bạn (1-2): ")
+        choice = input("\nNhập lựa chọn của bạn (0-1): ")
 
         if choice == '1':
             # Get Gmail service and call analyze_email directly
             service = get_gmail_service()
             analyze_email_with_custom_prompt(service)
-        elif choice == '2':
+        elif choice == '0':
             print("Đang thoát. Tạm biệt!")
             break
         else:
-            print("Lựa chọn không hợp lệ. Vui lòng nhập số từ 1 đến 2.")
+            print("Lựa chọn không hợp lệ. Vui lòng nhập số từ 0 đến 1.")
 
 if __name__ == '__main__':
     main()
