@@ -1,4 +1,8 @@
-# Python bytecode
+# Sensitive credentials
+credentials.json
+token.pickle
+
+# Python cache files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -8,19 +12,22 @@ dist/
 build/
 *.egg-info/
 
-# Virtual environments
-venv/
+# Environment
+.env
+.venv
 env/
+venv/
 ENV/
 
-# IDE specific files
+# Analysis results
+email_analysis_results/
+
+# IDEs
 .idea/
 .vscode/
+*.swp
+*.swo
 
-# Sensitive data
-credentials.json
-token.pickle
-.env
-
-# Output files
-*.log
+# OS specific files
+.DS_Store
+Thumbs.db
