@@ -7,6 +7,7 @@ Một dự án Python để tìm kiếm và phân tích email trong tài khoản
 - **Xử Lý Email Gitlab**: Tính năng mới để phân tích các email pipeline từ Gitlab
 - **Kiểm Tra URL Pipeline**: Khả năng kiểm tra trạng thái truy cập của các URL pipeline trong email thông báo thất bại
 - **Hiển Thị Prompt Phân Tích**: Hiển thị prompt đã sử dụng trong kết quả phân tích và đặt ở đầu file JSON kết quả
+- **Tối Ưu Hóa Dependencies**: Loại bỏ các thư viện không sử dụng để giảm kích thước cài đặt
 
 ## Cấu Trúc Dự Án
 
@@ -38,6 +39,19 @@ Hoặc cài đặt trực tiếp từ mã nguồn:
 
 ```bash
 pip install -e .
+```
+
+## Đóng Gói và Phân Phối
+
+Để đóng gói dự án và cài đặt trên máy tính khác:
+
+```bash
+# Tạo bản phân phối
+python -m build
+
+# Sao chép file .whl từ thư mục dist sang máy tính khác
+# Trên máy đích, cài đặt bằng lệnh:
+pip install gmail_agent-0.2.0-py3-none-any.whl
 ```
 
 ## Sử Dụng
@@ -75,7 +89,7 @@ Sau khi xác thực, bạn có thể sử dụng các chức năng tìm kiếm v
 
 ## Môi Trường
 
-Dự án yêu cầu Python 3.8 trở lên và sử dụng các API của OpenAI hoặc Google Gemini (có thể cấu hình trong file .env).
+Dự án yêu cầu Python 3.8 trở lên và sử dụng API của Google Gemini (có thể cấu hình trong file .env).
 
 ## Yêu Cầu
 
@@ -86,7 +100,6 @@ Xem requirements.txt để biết các thư viện phụ thuộc:
 - nltk
 - scikit-learn
 - numpy
-- openai
 - google-generativeai
 - python-dotenv
 - requests

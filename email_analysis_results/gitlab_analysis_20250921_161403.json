@@ -1,0 +1,12 @@
+{
+  "is_gitlab_email": true,
+  "is_failed_pipeline": true,
+  "subject": "Amrm Remote App | Failed pipeline for sit-20250919-1-amrm | 343dd7ba",
+  "sender": "Gitlab NHS <git_nhs@bidv.com.vn>",
+  "pipeline_url": "https://10.53.252.149/aiot/2025.kh042-amrm/frontend/amrm-remote-app/-/pipelines/166359",
+  "pipeline_url_accessible": false,
+  "accessibility_message": "Kết nối đến URL pipeline bị time out: https://10.53.252.149/aiot/2025.kh042-amrm/frontend/amrm-remote-app/-/pipelines/166359",
+  "project_name": "Amrm",
+  "commit_id": "343dd7ba",
+  "environment": "sit-20250919"
+}
