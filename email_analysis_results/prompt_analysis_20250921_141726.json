@@ -1,0 +1,23 @@
+{
+  "error": false,
+  "tom_tat": "Trịnh Quốc Thắng (DU16) gửi báo cáo tuần 3 của Sprint 8 cho nhóm dự án. Báo cáo chi tiết được đính kèm. Thắng mong nhận phản hồi và đóng góp để cập nhật kịp thời.",
+  "tu_khoa_quan_trong": [
+    "báo cáo tuần",
+    "sprint 8",
+    "tuần 3",
+    "file đính kèm",
+    "đóng góp",
+    "cập nhật kịp thời",
+    "tiến độ dự án",
+    "CMC Global"
+  ],
+  "hanh_dong": [
+    "Xem file đính kèm (Weekly report tuần 3 của Sprint 8)",
+    "Đọc báo cáo và phản hồi nếu cần bổ sung"
+  ],
+  "phan_tich_them": {
+    "nguoi_nhan": "Nhóm dự án (Project team). Email không cung cấp danh sách cụ thể.",
+    "nguoi_gui": "Trịnh Quốc Thắng (DU16), CMC Global",
+    "thong_tin_them": "Email có phần từ chối trách nhiệm về rủi ro liên quan đến bảo mật và virus trong email và file đính kèm."
+  }
+}
