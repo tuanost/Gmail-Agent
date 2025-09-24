@@ -176,41 +176,27 @@ def generate_ai_prompt_for_pipeline_error(
     if logs and len(logs) > 3000:
         logs = logs[:1500] + "\n...[log quá dài, đã được cắt bớt]...\n" + logs[-1500:]
 
-    # Tạo prompt
-    prompt = f"""Là một chuyên gia phân tích lỗi CI/CD pipeline, hãy phân tích chi tiết log lỗi sau và đưa ra gợi ý cụ thể để khắc phục:
+    # Format các dòng lỗi
+    formatted_error_lines = chr(10).join([f"- {line}" for line in error_lines[:10]])
+    if len(error_lines) > 10:
+        formatted_error_lines += f"\n... và {len(error_lines) - 10} dòng lỗi khác"
 
-THÔNG TIN DỰ ÁN:
-- Tên dự án: {project_info.get('project_name', 'Không xác định')}
-- Commit ID: {project_info.get('commit_id', 'Không xác định')}
-- Môi trường: {project_info.get('environment', 'Không xác định')}
-- Phân loại lỗi ban đầu: {error_type}
+    # Tải biến môi trường nếu chưa được tải
+    load_dotenv()
 
-CÁC DÒNG LỖI ĐÃ PHÁT HIỆN:
-{chr(10).join([f"- {line}" for line in error_lines[:10]])}
-{f"... và {len(error_lines) - 10} dòng lỗi khác" if len(error_lines) > 10 else ""}
+    # Lấy prompt từ biến môi trường
+    template = os.getenv("PIPELINE_ERROR_PROMPT")
 
-LOG ĐẦY ĐỦ:
-```
-{logs}
-```
+    # Thay thế các placeholder với giá trị thực tế
+    prompt = template.format(
+        project_name=project_info.get('project_name', 'Không xác định'),
+        commit_id=project_info.get('commit_id', 'Không xác định'),
+        environment=project_info.get('environment', 'Không xác định'),
+        error_type=error_type,
+        error_lines=formatted_error_lines,
+        logs=logs
+    )
 
-Hãy cung cấp phân tích chi tiết theo định dạng sau:
-1. PHÂN TÍCH LỖI:
-   - Nguyên nhân chính: [nguyên nhân gốc rễ của vấn đề]
-   - Phân loại lỗi: [xác định chính xác loại lỗi]
-   - Files/components bị ảnh hưởng: [liệt kê các file/component liên quan đến lỗi]
-
-2. GIẢI PHÁP ĐỀ XUẤT:
-   - Cách khắc phục nhanh: [giải pháp ngắn gọn để fix lỗi]
-   - Giải pháp lâu dài: [đề xuất cải tiến để tránh lỗi trong tương lai]
-   - Code mẫu (nếu áp dụng): [cung cấp code mẫu để sửa lỗi]
-
-3. KHUYẾN NGHỊ BỔ SUNG:
-   - Best practices: [các biện pháp tốt nhất liên quan]
-   - Kiểm tra thêm: [các phần khác của hệ thống nên kiểm tra]
-
-Hãy giải thích rõ ràng để cả người mới và người có kinh nghiệm đều có thể hiểu và áp dụng được giải pháp.
-"""
     return prompt
 
 def analyze_pipeline_error_with_ai(
@@ -441,8 +427,8 @@ def list_available_ai_providers() -> List[str]:
     # Kiểm tra Google Gemini API
     if GENAI_AVAILABLE and os.getenv("GOOGLE_API_KEY"):
         try:
-            # Lấy tên model từ biến môi trường hoặc sử dụng mặc định
-            gemini_model = os.getenv("DEFAULT_GEMINI_MODEL", "gemini-1.5-flash")
+            # Lấy tên model từ biến môi trường
+            gemini_model = os.getenv("DEFAULT_GEMINI_MODEL")
             print(f"Kiểm tra kết nối Gemini API với model: {gemini_model}")
 
             genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
@@ -466,8 +452,8 @@ def list_available_ai_providers() -> List[str]:
     # Kiểm tra OpenAI API
     if OPENAI_AVAILABLE and os.getenv("OPENAI_API_KEY"):
         try:
-            # Lấy tên model từ biến môi trường hoặc sử dụng mặc định
-            openai_model = os.getenv("DEFAULT_OPENAI_MODEL", "gpt-3.5-turbo")
+            # Lấy tên model từ biến môi trường
+            openai_model = os.getenv("DEFAULT_OPENAI_MODEL")
             print(f"Kiểm tra kết nối OpenAI API với model: {openai_model}")
 
             openai.api_key = os.getenv("OPENAI_API_KEY")

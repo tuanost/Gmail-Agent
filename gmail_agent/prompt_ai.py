@@ -24,8 +24,8 @@ logger = logging.getLogger(__name__)
 # Tải các biến môi trường
 load_dotenv()
 
-# Cấu hình mô hình AI mặc định từ biến môi trường hoặc sử dụng Gemini nếu không được cấu hình
-DEFAULT_AI_PROVIDER = os.getenv("DEFAULT_AI_PROVIDER", "gemini")
+# Cấu hình mô hình AI mặc định từ biến môi trường
+DEFAULT_AI_PROVIDER = os.getenv("DEFAULT_AI_PROVIDER")
 
 def analyze_email_with_prompt(email_body: str, prompt: str) -> Dict[str, Any]:
     """
@@ -80,7 +80,7 @@ def _legacy_analyze_email(email_body: str, prompt: str) -> Dict[str, Any]:
     # Mặc định xử lý chung
     result = {
         "prompt_su_dung": prompt,
-        "phan_tich_them": "Không thể kết nối tới API AI. Đây là phân tích cục bộ đơn giản."
+        "phan_tich": "Không thể kết nối tới API AI. Đây là phân tích cục bộ đơn giản."
     }
 
     return result
@@ -110,9 +110,9 @@ def format_analysis_result(result: Dict[str, Any]) -> str:
         output += f"📊 SỐ TIN NHẮN: {result['message_count']}\n\n"
 
     # Phân tích
-    if "phan_tich_them" in result and result["phan_tich_them"]:
+    if "phan_tich" in result and result["phan_tich"]:
         output += "📌 PHÂN TÍCH:\n"
-        output += _format_analysis_content(result["phan_tich_them"])
+        output += _format_analysis_content(result["phan_tich"])
 
     # Thêm các trường phân tích hội thoại nếu có
     _append_conversation_analysis(result, output)

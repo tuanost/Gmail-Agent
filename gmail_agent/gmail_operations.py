@@ -56,7 +56,8 @@ def search_emails(service: Any, query: str, max_results: int = 20) -> List[Dict[
             if 'messages' in result:
                 messages.extend(result['messages'])
 
-        logger.info(f"Đã tìm thấy {len(messages)} email khớp với truy vấn: {query}")
+        email_count = len(messages)
+        logger.info(f"[Kết quả tìm kiếm] Tìm thấy {email_count} email khớp với truy vấn: {query}")
         return messages
     except HttpError as e:
         logger.error(f"Lỗi HTTP khi tìm kiếm email: {str(e)}")
@@ -82,7 +83,7 @@ def search_by_keyword(service: Any, keyword: str, max_results: int = 20) -> List
     logger.info(f"Tìm kiếm email theo từ khóa: {keyword}")
     return search_emails(service, query, max_results)
 
-def search_by_label(service: Any, label_id: str, label_name: str, max_results: int = 20) -> List[Dict[str, Any]]:
+def search_by_label(service: Any, label_id: str, label_name: str, max_results: int = 10) -> List[Dict[str, Any]]:
     """
     Tìm kiếm email theo nhãn (label).
 
@@ -90,15 +91,18 @@ def search_by_label(service: Any, label_id: str, label_name: str, max_results: i
         service: Phiên bản dịch vụ Gmail API đã được xác thực
         label_id: ID của nhãn cần tìm
         label_name: Tên của nhãn để hiển thị thông báo
-        max_results: Số lượng kết quả tối đa
+        max_results: Số lượng email gần nhất cần lấy
 
     Returns:
-        Danh sách các email có nhãn đã chọn
+        Danh sách các email gần nhất có nhãn đã chọn
     """
     try:
         logger.info(f"Tìm kiếm email với nhãn: {label_name} (ID: {label_id})")
 
-        # Sử dụng labelIds trực tiếp thay vì query để tìm email theo nhãn
+        # Đếm tổng số email thực tế có nhãn này
+        total_count = count_total_emails(service, label_ids=[label_id])
+        
+        # Sử dụng labelIds trực tiếp để tìm email với nhãn
         result = service.users().messages().list(
             userId='me',
             labelIds=[label_id],
@@ -109,26 +113,16 @@ def search_by_label(service: Any, label_id: str, label_name: str, max_results: i
         if 'messages' in result:
             messages.extend(result['messages'])
 
-        # Xử lý phân trang nếu có nhiều kết quả
-        while 'nextPageToken' in result and len(messages) < max_results:
-            page_token = result['nextPageToken']
-            result = service.users().messages().list(
-                userId='me',
-                labelIds=[label_id],
-                pageToken=page_token,
-                maxResults=max_results - len(messages)
-            ).execute()
-            if 'messages' in result:
-                messages.extend(result['messages'])
+        # Log tổng số email thực sự có trong hệ thống
+        logger.info(f"[Kết quả tìm kiếm] Đã tìm thấy {total_count} email với nhãn: {label_name}")
 
-        logger.info(f"Đã tìm thấy {len(messages)} email với nhãn: {label_name}")
-        return messages
+        return messages, total_count
     except HttpError as e:
         logger.error(f"Lỗi HTTP khi tìm kiếm email theo nhãn: {str(e)}")
-        return []
+        return [], 0
     except Exception as e:
         logger.exception(f"Lỗi khi tìm kiếm email theo nhãn: {str(e)}")
-        return []
+        return [], 0
 
 def get_email_details(service: Any, msg_id: str) -> Optional[Dict[str, Any]]:
     """
@@ -142,7 +136,6 @@ def get_email_details(service: Any, msg_id: str) -> Optional[Dict[str, Any]]:
         Đối tượng tin nhắn với đầy đủ thông tin hoặc None nếu có lỗi
     """
     try:
-        logger.info(f"Lấy chi tiết email với ID: {msg_id}")
         message = service.users().messages().get(userId='me', id=msg_id).execute()
         return message
     except HttpError as e:
@@ -198,6 +191,34 @@ def get_sender(message: Dict[str, Any]) -> str:
     """
     return extract_header_value(message, 'From', 'Không xác định')
 
+def get_recipients(message: Dict[str, Any]) -> str:
+    """
+    Trích xuất địa chỉ email người nhận từ một tin nhắn.
+
+    Args:
+        message: Đối tượng tin nhắn từ Gmail API
+
+    Returns:
+        Danh sách người nhận hoặc 'Không xác định' nếu không tìm thấy
+    """
+    # Thử lấy từ trường To
+    to_recipients = extract_header_value(message, 'To', '')
+
+    # Thử lấy từ trường Cc
+    cc_recipients = extract_header_value(message, 'Cc', '')
+
+    # Kết hợp các địa chỉ nhận
+    all_recipients = []
+    if to_recipients:
+        all_recipients.append(f"Đến: {to_recipients}")
+    if cc_recipients:
+        all_recipients.append(f"Cc: {cc_recipients}")
+
+    if all_recipients:
+        return "; ".join(all_recipients)
+    else:
+        return "Không xác định"
+
 def get_email_list(service: Any, max_results: int = 10) -> List[Dict[str, Any]]:
     """
     Lấy danh sách email mới nhất.
@@ -213,7 +234,8 @@ def get_email_list(service: Any, max_results: int = 10) -> List[Dict[str, Any]]:
         logger.info(f"Lấy {max_results} email mới nhất")
         results = service.users().messages().list(userId='me', maxResults=max_results).execute()
         messages = results.get('messages', [])
-        logger.info(f"Đã lấy {len(messages)} email")
+        email_count = len(messages)
+        logger.info(f"[Kết quả tìm kiếm] Đã tìm thấy {email_count} email mới nhất")
         return messages
     except HttpError as e:
         logger.error(f"Lỗi HTTP khi lấy danh sách email: {str(e)}")
@@ -403,3 +425,49 @@ def get_email_thread(service: Any, thread_id: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.exception(f"Lỗi khi lấy chuỗi hội thoại: {str(e)}")
         return []
+
+def count_total_emails(service: Any, query: str = None, label_ids: List[str] = None) -> int:
+    """
+    Đếm tổng số email khớp với truy vấn hoặc nhãn mà không giới hạn kết quả.
+    
+    Args:
+        service: Phiên bản dịch vụ Gmail API đã được xác thực
+        query: Chuỗi truy vấn tìm kiếm (Gmail search syntax)
+        label_ids: Danh sách ID nhãn cần tìm
+        
+    Returns:
+        Tổng số email khớp với điều kiện
+    """
+    try:
+        params = {'userId': 'me'}
+        if query:
+            params['q'] = query
+        if label_ids:
+            params['labelIds'] = label_ids
+            
+        result = service.users().messages().list(**params).execute()
+        total_messages = 0
+        
+        # Gmail API sẽ trả về resultSizeEstimate nếu có nhiều kết quả
+        if 'resultSizeEstimate' in result:
+            return result['resultSizeEstimate']
+            
+        # Nếu không có resultSizeEstimate, đếm bằng cách lặp qua tất cả trang
+        if 'messages' in result:
+            total_messages += len(result['messages'])
+            
+        # Xử lý phân trang để đếm tất cả kết quả
+        while 'nextPageToken' in result:
+            page_token = result['nextPageToken']
+            params['pageToken'] = page_token
+            result = service.users().messages().list(**params).execute()
+            if 'messages' in result:
+                total_messages += len(result['messages'])
+                
+        return total_messages
+    except HttpError as e:
+        logger.error(f"Lỗi HTTP khi đếm email: {str(e)}")
+        return 0
+    except Exception as e:
+        logger.exception(f"Lỗi khi đếm email: {str(e)}")
+        return 0

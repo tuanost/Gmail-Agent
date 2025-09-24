@@ -1,7 +1,6 @@
 """
-Module xử lý email từ Gitlab.
-Module này cung cấp các chức năng để xử lý email từ Gitlab, đặc biệt là các thông báo
-về pipeline thành công hoặc thất bại.
+Module xử lý các thao tác với Gitlab từ email.
+Module này cung cấp các chức năng xử lý email từ Gitlab, phân tích và trích xuất thông tin.
 """
 
 import re
@@ -12,6 +11,11 @@ import base64
 import html
 import logging
 from urllib.parse import urlparse
+import os
+from dotenv import load_dotenv
+
+# Import các module liên quan
+from gmail_agent.gitlab_auth import check_pipeline_url_accessibility
 
 # Thiết lập logging
 logging.basicConfig(level=logging.INFO)
@@ -24,7 +28,7 @@ try:
 except ImportError:
     MOCK_HANDLER_AVAILABLE = False
 
-# Import module phân tích AI mới
+# Import module phân tích AI
 try:
     from gmail_agent.open_ai_analyzer import (
         analyze_pipeline_error_with_ai,
@@ -39,10 +43,10 @@ def extract_raw_html_content(message):
     """
     Trích xuất nội dung HTML gốc từ email để xử lý các hyperlink.
 
-    Tham số:
+    Args:
         message: Đối tượng tin nhắn từ Gmail API
 
-    Trả về:
+    Returns:
         Chuỗi HTML gốc của email
     """
     parts = []
@@ -77,11 +81,11 @@ def is_gitlab_pipeline_email(message, sender_filter="git_nhs@bidv.com.vn"):
     """
     Kiểm tra xem email có phải là thông báo từ Gitlab về pipeline hay không.
 
-    Tham số:
+    Args:
         message: Đối tượng tin nhắn từ Gmail API
         sender_filter: Địa chỉ email của hệ thống Gitlab (mặc định là git_nhs@bidv.com.vn)
 
-    Trả về:
+    Returns:
         True nếu là email thông báo từ Gitlab về pipeline, ngược lại False
     """
     # Kiểm tra người gửi
@@ -101,10 +105,10 @@ def is_failed_pipeline_email(message):
     """
     Kiểm tra xem email có phải là thông báo về pipeline thất bại hay không.
 
-    Tham số:
+    Args:
         message: Đối tượng tin nhắn từ Gmail API
 
-    Trả về:
+    Returns:
         True nếu là email thông báo pipeline thất bại, ngược lại False
     """
     if not is_gitlab_pipeline_email(message):
@@ -119,10 +123,10 @@ def extract_pipeline_url(message):
     """
     Trích xuất URL của pipeline từ email Gitlab.
 
-    Tham số:
+    Args:
         message: Đối tượng tin nhắn từ Gmail API
 
-    Trả về:
+    Returns:
         URL của pipeline hoặc None nếu không tìm thấy
     """
     # Lấy nội dung HTML
@@ -148,50 +152,42 @@ def extract_pipeline_url(message):
     # Trả về liên kết đầu tiên tìm thấy nếu không tìm thấy liên kết chính
     return pipeline_links[0] if pipeline_links else None
 
-def check_pipeline_url_accessibility(url, timeout=5):
+def extract_job_urls(message):
     """
-    Kiểm tra xem URL của pipeline có thể truy cập được không.
+    Trích xuất trực tiếp các URL job từ email Gitlab.
 
-    Tham số:
-        url: URL cần kiểm tra
-        timeout: Thời gian chờ tối đa (giây)
+    Args:
+        message: Đối tượng tin nhắn từ Gmail API
 
-    Trả về:
-        Tuple (bool, str): (Có thể truy cập không, Thông báo)
+    Returns:
+        List[str]: Danh sách các URL job hoặc danh sách trống nếu không tìm thấy
     """
-    if not url:
-        return False, "Không tìm thấy URL pipeline trong email."
+    # Lấy nội dung HTML
+    html_content = extract_raw_html_content(message)
 
-    try:
-        # Phân tích URL để kiểm tra tính hợp lệ
-        parsed_url = urlparse(url)
-        if not parsed_url.scheme or not parsed_url.netloc:
-            return False, f"URL pipeline không hợp lệ: {url}"
+    if not html_content:
+        return []
 
-        # Thử truy cập URL
-        response = requests.head(url, timeout=timeout, allow_redirects=True)
-        if response.status_code < 400:
-            return True, f"URL pipeline có thể truy cập được: {url}"
-        else:
-            return False, f"URL pipeline không thể truy cập. Mã trạng thái: {response.status_code}"
+    # Sử dụng BeautifulSoup để phân tích HTML
+    soup = BeautifulSoup(html_content, 'html.parser')
 
-    except requests.exceptions.Timeout:
-        return False, f"Kết nối đến URL pipeline bị time out: {url}"
+    # Tìm các liên kết chứa từ khóa "job" hoặc "build"
+    job_links = []
+    for link in soup.find_all('a'):
+        href = link.get('href')
+        if href and ('job' in href.lower() or 'build' in href.lower()):
+            job_links.append(href)
 
-    except requests.exceptions.ConnectionError:
-        return False, f"Không thể kết nối đến URL pipeline: {url}"
-
-    except Exception as e:
-        return False, f"Lỗi khi kiểm tra URL pipeline: {str(e)}"
+    return job_links
 
 def extract_pipeline_logs(pipeline_url):
     """
     Truy cập URL pipeline để lấy log lỗi.
 
-    Tham số:
+    Args:
         pipeline_url: URL của pipeline cần truy cập
 
-    Trả về:
+    Returns:
         Dictionary chứa thông tin log và lỗi
     """
     if not pipeline_url:
@@ -283,10 +279,10 @@ def analyze_pipeline_errors(pipeline_logs):
     """
     Phân tích log lỗi và đưa ra gợi ý cách sửa.
 
-    Tham số:
+    Args:
         pipeline_logs: Dictionary chứa thông tin log lỗi từ hàm extract_pipeline_logs
 
-    Trả về:
+    Returns:
         Dictionary chứa phân tích và gợi ý cách sửa
     """
     if not pipeline_logs or not pipeline_logs["success"]:
@@ -400,96 +396,169 @@ def analyze_pipeline_errors(pipeline_logs):
                 "Tham khảo tài liệu hoặc tìm kiếm online về lỗi cụ thể"
             ]
         else:
-            analysis["analysis"] = "Không thể xác định chính xác loại lỗi từ log"
+            analysis["analysis"] = "Không thể xác định lỗi cụ thể từ log"
             analysis["suggestions"] = [
                 "Kiểm tra trực tiếp trên giao diện Gitlab để xem chi tiết lỗi",
-                "Thử chạy pipeline lại nếu có thể",
-                "Kiểm tra các thay đổi gần đây trong code có thể gây ra lỗi"
+                "Thử chạy pipeline lại nếu có thể"
             ]
 
     return analysis
 
-def analyze_gitlab_email(message):
+def extract_project_info_from_email(message):
     """
-    Phân tích email từ Gitlab và trả về thông tin chi tiết.
+    Trích xuất thông tin dự án từ email Gitlab.
 
-    Tham số:
+    Args:
         message: Đối tượng tin nhắn từ Gmail API
 
-    Trả về:
-        Dictionary chứa thông tin phân tích
+    Returns:
+        Dictionary chứa thông tin dự án (project_name, commit_id, environment)
     """
-    from gmail_agent.gmail_operations import get_email_subject, get_sender
+    from gmail_agent.gmail_operations import get_email_subject
+    subject = get_email_subject(message)
 
-    result = {
-        "is_gitlab_email": is_gitlab_pipeline_email(message),
-        "is_failed_pipeline": False,
-        "subject": get_email_subject(message),
-        "sender": get_sender(message),
-        "pipeline_url": None,
-        "pipeline_url_accessible": False,
-        "accessibility_message": "",
+    # Khởi tạo kết quả
+    project_info = {
         "project_name": "",
         "commit_id": "",
-        "environment": "",
-        "pipeline_logs": None,
-        "error_analysis": None,
-        "using_mock_data": False
+        "environment": ""
     }
 
-    if not result["is_gitlab_email"]:
-        return result
+    # Trích xuất tên dự án và commit ID từ tiêu đề
+    # Mẫu thường gặp: "project-name  Pipeline status  commit-id"
+    parts = subject.split()
 
-    # Kiểm tra xem có phải email thông báo thất bại không
-    result["is_failed_pipeline"] = is_failed_pipeline_email(message)
+    # Tìm các phần tử tiêu đề
+    for i, part in enumerate(parts):
+        # Tìm tên dự án (thường là phần đầu tiên)
+        if i == 0 and not project_info["project_name"]:
+            project_info["project_name"] = part
 
-    # Trích xuất URL pipeline
-    pipeline_url = extract_pipeline_url(message)
-    result["pipeline_url"] = pipeline_url
+        # Tìm commit ID (thường là phần cuối và có dạng mã hash)
+        if i == len(parts) - 1 and re.match(r'^[0-9a-f]{7,40}$', part):
+            project_info["commit_id"] = part
 
-    # Kiểm tra khả năng truy cập URL
-    if pipeline_url:
-        accessible, message = check_pipeline_url_accessibility(pipeline_url)
-        result["pipeline_url_accessible"] = accessible
-        result["accessibility_message"] = message
+    # Tìm môi trường từ tiêu đề (thường là phần giữa như "for branch-name")
+    branch_match = re.search(r'for\s+(\S+)', subject)
+    if branch_match:
+        project_info["environment"] = branch_match.group(1)
 
-        # Nếu URL có thể truy cập và là email báo lỗi, trích xuất và phân tích logs
-        if accessible and result["is_failed_pipeline"]:
-            # Trích xuất logs từ pipeline URL
-            pipeline_logs = extract_pipeline_logs(pipeline_url)
+    return project_info
+
+def analyze_gitlab_email(message):
+    """
+    Phân tích email từ Gitlab để trích xuất thông tin và phân tích lỗi pipeline.
+
+    Args:
+        message: Đối tượng tin nhắn từ Gmail API
+
+    Returns:
+        Dictionary chứa kết quả phân tích
+    """
+    # Kiểm tra xem có phải email Gitlab không
+    if not is_gitlab_pipeline_email(message):
+        return {
+            "success": False,
+            "error": "Email không phải từ Gitlab"
+        }
+
+    # Lấy thông tin cơ bản từ email
+    from gmail_agent.gmail_operations import get_sender, get_email_subject
+    sender = get_sender(message)
+    subject = get_email_subject(message)
+
+    # Trích xuất thông tin dự án
+    project_info = extract_project_info_from_email(message)
+
+    # Trích xuất trực tiếp job URLs từ email
+    job_urls = extract_job_urls(message)
+
+    # Khởi tạo kết quả phân tích
+    result = {
+        "sender": sender,
+        "subject": subject,
+        "project_name": project_info["project_name"],
+        "commit_id": project_info["commit_id"],
+        "environment": project_info["environment"],
+        "is_failed_pipeline": is_failed_pipeline_email(message),
+        "job_urls": job_urls,
+        "job_count": len(job_urls)
+    }
+
+    # Nếu tìm thấy job URLs và đây là email thông báo pipeline thất bại
+    if job_urls and result["is_failed_pipeline"]:
+        logger.info(f"Đã trích xuất được {len(job_urls)} job URLs từ email")
+
+        # Import hàm từ gitlab_auth để lấy log từ job thất bại
+        from gmail_agent.gitlab_auth import find_and_get_failed_job_log
+
+        # Tìm và lấy log của job thất bại đầu tiên
+        job_result = find_and_get_failed_job_log(job_urls)
+
+        if job_result.get('success'):
+            # Tạo dữ liệu log cho phân tích
+            job_log = job_result.get('job_log', '')
+            job_info = job_result.get('job_info', {})
+
+            # Tách log thành các dòng và tìm các dòng lỗi
+            log_lines = job_log.splitlines()
+            error_lines = []
+            for line in log_lines:
+                if any(err_term in line.lower() for err_term in ['error', 'exception', 'failed', 'failure', 'lỗi']):
+                    error_lines.append(line.strip())
+
+            # Giới hạn số dòng lỗi
+            error_lines = error_lines[:20]
+
+            # Tạo dữ liệu pipeline logs cho phân tích
+            pipeline_logs = {
+                "success": True,
+                "job_links": job_urls,
+                "error_lines": error_lines,
+                "logs": job_log[:5000] if job_log else None  # Giới hạn độ dài để tránh quá tải
+            }
+
             result["pipeline_logs"] = pipeline_logs
+            result["job_info"] = job_info
+            result["job_status"] = job_result.get('job_status', 'unknown')
+            result["job_name"] = job_info.get('name', 'Unknown Job')
 
-            # Phân tích lỗi và đưa ra gợi ý
-            if pipeline_logs:
-                error_analysis = analyze_pipeline_errors(pipeline_logs)
-                result["error_analysis"] = error_analysis
+            # Phân tích lỗi dựa trên log
+            error_analysis = analyze_pipeline_errors(pipeline_logs)
+            result["error_analysis"] = error_analysis
 
-        # Nếu URL KHÔNG thể truy cập và mock handler có sẵn, sử dụng mock data
-        elif not accessible and result["is_failed_pipeline"] and MOCK_HANDLER_AVAILABLE:
-            # Sử dụng mock data nếu người dùng lựa chọn
-            result = integrate_mock_pipeline_logs_to_gitlab_analysis(result)
+            # Phân tích lỗi bằng AI nếu có thể
+            if OPEN_AI_ANALYZER_AVAILABLE:
+                try:
+                    # Sử dụng mô hình AI để phân tích lỗi
+                    project_info_for_ai = {
+                        "project_name": project_info["project_name"],
+                        "commit_id": project_info["commit_id"],
+                        "environment": project_info["environment"],
+                        "error_type": error_analysis.get("error_type", "unknown")
+                    }
 
-    # Trích xuất thông tin từ tiêu đề
-    subject = result["subject"]
+                    # Phân tích với AI
+                    from gmail_agent.open_ai_analyzer import analyze_pipeline_error_with_ai
+                    ai_result = analyze_pipeline_error_with_ai(pipeline_logs, project_info_for_ai)
+                    if ai_result:
+                        result["ai_error_analysis"] = ai_result
+                except Exception as e:
+                    logger.error(f"Lỗi khi phân tích pipeline bằng AI: {str(e)}")
 
-    # Trích xuất tên dự án
-    project_match = re.search(r'^([a-zA-Z0-9\-_]+)', subject)
-    if project_match:
-        result["project_name"] = project_match.group(1)
+        else:
+            # Không thể lấy được log của job
+            logger.warning(f"Không thể lấy log từ job: {job_result.get('error', 'Unknown error')}")
+            result["job_error"] = job_result.get('error', 'Unknown error')
 
-    # Trích xuất commit ID (thường là chuỗi hex ở cuối)
-    commit_match = re.search(r'([a-f0-9]{6,40})$', subject)
-    if commit_match:
-        result["commit_id"] = commit_match.group(1)
+            # Chuẩn bị dữ liệu giả lập cho phân tích
+            if MOCK_HANDLER_AVAILABLE:
+                result = integrate_mock_pipeline_logs_to_gitlab_analysis(result)
 
-    # Trích xuất môi trường (sit, uat, prod)
-    env_match = re.search(r'(sit|uat|prod)-[0-9]+', subject, re.IGNORECASE)
-    if env_match:
-        result["environment"] = env_match.group(0)
-
-    # Nếu có module phân tích AI, sử dụng để phân tích lỗi
-    if OPEN_AI_ANALYZER_AVAILABLE and result["pipeline_logs"] and result["is_failed_pipeline"]:
-        ai_analysis = analyze_pipeline_error_with_ai(result["pipeline_logs"])
-        result["ai_error_analysis"] = ai_analysis
+    # Nếu không tìm thấy job URLs hoặc không lấy được log
+    elif MOCK_HANDLER_AVAILABLE and result["is_failed_pipeline"]:
+        # Sử dụng mock data nếu không tìm thấy job URLs
+        logger.info("Không tìm thấy job URLs hoặc không lấy được log, sử dụng mock data")
+        result = integrate_mock_pipeline_logs_to_gitlab_analysis(result)
 
     return result

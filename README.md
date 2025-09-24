@@ -1,10 +1,10 @@
-
 # Gmail Agent
 
 Một dự án Python để tìm kiếm và phân tích email trong tài khoản Gmail của bạn với các tính năng AI nâng cao.
 
-## Cập Nhật Mới (Tháng 9, 2025)
+## Cập Nhật Mới (25 Tháng 9, 2025)
 
+- **Tối Ưu Hiển Thị Email**: Cải thiện cách hiển thị số lượng email và định dạng danh sách email
 - **Tối Ưu Hóa Mã Nguồn**: Cải thiện cấu trúc code, thêm type hints và logging để dễ dàng bảo trì hơn
 - **Cải Tiến Xử Lý Lỗi**: Nâng cao khả năng xử lý lỗi khi gọi API và xử lý dữ liệu
 - **Loại Bỏ Trường Thừa**: Đã loại bỏ các trường summary, important_keywords, action_items trong kết quả phân tích
@@ -21,9 +21,11 @@ Dự án được tổ chức thành các module riêng biệt để dễ bảo 
 - `gmail_operations.py` - Chứa chức năng tìm kiếm và truy xuất email
 - `email_ai.py` - Chức năng AI cơ bản cho phân tích email
 - `ai_interface.py` - Giao diện chức năng phân tích email bằng AI
-- `ai_models.py` - Tích hợp với các API mô hình AI bên ngoài (Gemini)
+- `ai_models.py` - Tích hợp với các API mô hình AI bên ngoài (Gemini, OpenAI)
 - `prompt_ai.py` - Xử lý prompt và định dạng kết quả phân tích
-- `gitlab_email_handler.py` - Xử lý chuyên biệt cho email từ Gitlab
+- `gitlab_auth.py` - Xác thực với Gitlab API
+- `gitlab_operations.py` - Xử lý chuyên biệt cho email từ Gitlab
+- `open_ai_analyzer.py` - Tích hợp phân tích với OpenAI
 - `pipeline_mock_data.py` - Dữ liệu mô phỏng cho phân tích lỗi pipeline
 - `pipeline_mock_handler.py` - Xử lý dữ liệu mô phỏng cho pipeline
 - `main.py` - Chương trình chính tích hợp các module khác
@@ -34,7 +36,7 @@ Dự án được tổ chức thành các module riêng biệt để dễ bảo 
 2. Kích hoạt Gmail API
 3. Tạo thông tin xác thực OAuth (OAuth client ID) cho ứng dụng desktop
 4. Tải thông tin xác thực và lưu thành `credentials.json` trong thư mục dự án
-5. Tạo file `.env` chứa biến môi trường GOOGLE_API_KEY cho API Gemini
+5. Tạo file `.env` chứa các biến môi trường cần thiết (xem phần Cấu Hình Môi Trường)
 
 ## Cài Đặt
 
@@ -93,17 +95,45 @@ Sau khi xác thực, bạn có thể sử dụng các chức năng tìm kiếm v
     - Lưu kết quả phân tích vào file JSON
 - **Logging đầy đủ**: Theo dõi và ghi lại quá trình xử lý để dễ dàng gỡ lỗi
 
-## Môi Trường
+## Cấu Hình Môi Trường
 
-Dự án yêu cầu Python 3.8 trở lên và sử dụng API của Google Gemini (được cấu hình trong file .env).
+Dự án sử dụng file `.env` để cấu hình các thông số quan trọng. Một số cấu hình chính:
+
+```
+# API Keys cho các mô hình AI
+OPENAI_API_KEY=your_openai_api_key
+GOOGLE_API_KEY=your_google_api_key
+
+# Cấu hình mô hình
+DEFAULT_AI_PROVIDER=gemini  # "gemini" hoặc "openai"
+
+# Cấu hình tên mô hình
+DEFAULT_OPENAI_MODEL=gpt-3.5-turbo-0125
+DEFAULT_GEMINI_MODEL=gemini-1.5-flash
+
+# Default prompt cho phân tích email
+DEFAULT_EMAIL_PROMPT="Prompt mặc định cho phân tích email..."
+
+# Prompt cho phân tích lỗi pipeline
+PIPELINE_ERROR_PROMPT="Prompt cho phân tích lỗi pipeline..."
+```
 
 ## Yêu Cầu
 
-Xem requirements.txt để biết các thư viện phụ thuộc:
-- google-api-python-client
-- google-auth-httplib2
-- google-auth-oauthlib
-- google-generativeai
-- python-dotenv
-- nltk
-- scikit-learn
+- Python 3.8+
+- Google API Python Client
+- OAuth2 Client
+- Google Gemini API hoặc OpenAI API
+- Các thư viện khác được liệt kê trong file requirements.txt
+
+## Tích Hợp Ollama (Tùy chọn)
+
+Gmail Agent hỗ trợ tích hợp với Ollama để chạy các mô hình LLM cục bộ. Xem hướng dẫn chi tiết trong file `ollama_setup_guide.md`.
+
+## Đóng Góp
+
+Mọi đóng góp đều được hoan nghênh. Vui lòng gửi Pull Request hoặc mở Issue để thảo luận về các tính năng hoặc báo cáo lỗi.
+
+## Giấy Phép
+
+[MIT License](LICENSE)

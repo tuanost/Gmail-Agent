@@ -87,7 +87,8 @@ def analyze_email_with_custom_prompt(service):
 
             if 0 <= label_index < len(labels):
                 selected_label = labels[label_index]
-                messages = search_by_label(service, selected_label['id'], selected_label['name'])
+                messages, total_count = search_by_label(service, selected_label['id'], selected_label['name'])
+                print(f"\nĐã tìm thấy {total_count} email với nhãn: {selected_label['name']}")
             else:
                 print("Lựa chọn không hợp lệ.")
                 return
@@ -118,14 +119,23 @@ def analyze_email_with_custom_prompt(service):
     from gmail_agent.gmail_operations import get_email_details, get_email_subject
 
     emails_to_display = messages[:10]  # Giới hạn hiển thị 10 email
+    remain_count = len(messages) - 10 if len(messages) > 10 else 0
+
+    print(f"Tổng số email tìm thấy: {len(messages)}")
+    print(f"Số email hiển thị: {len(emails_to_display)}")
+    print(f"Số email còn lại: {remain_count}")
+
     for i, msg in enumerate(emails_to_display, 1):
         message = get_email_details(service, msg['id'])
         if message:
             subject = get_email_subject(message)
             print(f"{i}. {subject}")
 
-    if len(messages) > 10:
-        print(f"... và {len(messages) - 10} email khác.")
+    # Luôn hiển thị thông báo về số email còn lại, ngay cả khi remain_count = 0
+    if remain_count > 0:
+        print(f"... và {remain_count} email khác.")
+    else:
+        print("(Đã hiển thị tất cả các email tìm thấy)")
 
     print(f"0. Quay lại tìm kiếm email")
 
@@ -175,7 +185,7 @@ NỘI DUNG EMAIL:
         from dotenv import load_dotenv
         import os
         load_dotenv()
-        default_prompt = os.getenv("DEFAULT_EMAIL_PROMPT", "Bạn hãy đọc email và tóm tắt lại những ý chính, highlight các keywords cần thiết để tôi có nắm thông tin nhanh hơn. Hãy chú ý các thông tin về người gửi và người nhận trong phần METADATA.")
+        default_prompt = os.getenv("DEFAULT_EMAIL_PROMPT")
 
         custom_prompt = input("\nNhập prompt của bạn (Enter để dùng mặc định): ")
         if not custom_prompt.strip():
@@ -210,7 +220,7 @@ def handle_gitlab_emails(service):
         service: Phiên bản dịch vụ Gmail API đã được xác thực
     """
     from gmail_agent.gmail_operations import search_by_label, get_email_labels, get_email_details
-    from gmail_agent.gitlab_email_handler import analyze_gitlab_email, is_gitlab_pipeline_email
+    from gmail_agent.gitlab_operations import analyze_gitlab_email, is_gitlab_pipeline_email
 
     # Kiểm tra xem module phân tích AI có khả dụng không
     try:
@@ -252,7 +262,8 @@ def handle_gitlab_emails(service):
 
     # Tìm email Gitlab
     print("\nĐang tìm kiếm email Gitlab...")
-    messages = search_by_label(service, gitlab_label_id, "Gitlab")
+    messages, total_count = search_by_label(service, gitlab_label_id, "Gitlab")
+    print(f"\nĐã tìm thấy {total_count} email với nhãn: Gitlab")
 
     if not messages:
         print("Không tìm thấy email Gitlab nào.")
@@ -264,7 +275,6 @@ def handle_gitlab_emails(service):
     filtered_messages = []
 
     if choice == "1":
-        print("\nĐang phân tích tất cả email Gitlab...")
         for msg in messages:
             message = get_email_details(service, msg['id'])
             if message and is_gitlab_pipeline_email(message):
@@ -280,7 +290,7 @@ def handle_gitlab_emails(service):
         print("\nĐang tìm kiếm email thông báo pipeline thất bại...")
         for msg in messages:
             message = get_email_details(service, msg['id'])
-            from gmail_agent.gitlab_email_handler import is_failed_pipeline_email
+            from gmail_agent.gitlab_operations import is_failed_pipeline_email
             if message and is_failed_pipeline_email(message):
                 filtered_messages.append(message)
 
@@ -297,13 +307,25 @@ def handle_gitlab_emails(service):
     # Hiển thị danh sách email đã lọc
     from gmail_agent.gmail_operations import get_email_subject
 
-    print(f"\nĐã tìm thấy {len(filtered_messages)} email Gitlab phù hợp:")
-    for i, message in enumerate(filtered_messages[:10], 1):
+    emails_to_display = filtered_messages[:10]
+    remain_count = len(filtered_messages) - 10 if len(filtered_messages) > 10 else 0
+
+    print(f"Tổng số email gitlab tìm thấy: {len(filtered_messages)}")
+    print(f"Số email hiển thị: {len(emails_to_display)}")
+    print(f"Số email còn lại: {remain_count}")
+
+    print(f"\nVui lòng chọn một email để phân tích:")
+    for i, message in enumerate(emails_to_display, 1):
         subject = get_email_subject(message)
         print(f"{i}. {subject}")
 
-    if len(filtered_messages) > 10:
-        print(f"... và {len(filtered_messages) - 10} email khác.")
+    # Luôn hiển thị thông báo về số email còn lại, ngay cả khi remain_count = 0
+    if remain_count > 0:
+        print(f"... và {remain_count} email khác.")
+    else:
+        print("(Đã hiển thị tất cả các email tìm thấy)")
+
+    print(f"0. Quay lại tìm kiếm email")
 
     # Lấy lựa chọn của người dùng
     email_choice = input("\nNhập số thứ tự email để phân tích (0 để quay lại): ")
@@ -462,3 +484,4 @@ def handle_gitlab_emails(service):
     except ValueError:
         print("Đầu vào không hợp lệ. Vui lòng nhập một số.")
         handle_gitlab_emails(service)
+

@@ -21,8 +21,8 @@ load_dotenv()
 # Cấu hình API keys từ biến môi trường
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# Cấu hình mặc định cho mô hình từ biến môi trường
-DEFAULT_GEMINI_MODEL = os.getenv("DEFAULT_GEMINI_MODEL", "gemini-1.5-flash")
+# Cấu hình mô hình từ biến môi trường
+DEFAULT_GEMINI_MODEL = os.getenv("DEFAULT_GEMINI_MODEL")
 
 
 class AIModelService:
@@ -86,7 +86,7 @@ YÊU CẦU:
 {prompt}
 
 Vui lòng trả lời dưới dạng JSON với trường: 
-- "phan_tich_them": các phân tích bổ sung theo yêu cầu
+- "phan_tich": các phân tích bổ sung theo yêu cầu
 """
 
     def _call_gemini_api(self, prompt: str) -> Dict[str, Any]:

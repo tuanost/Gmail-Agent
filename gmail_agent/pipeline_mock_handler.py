@@ -4,7 +4,7 @@ Cho phép sử dụng mock data khi không thể truy cập URL pipeline do gi�
 """
 
 from gmail_agent.pipeline_mock_data import get_mock_pipeline_logs, get_all_mock_error_types
-from gmail_agent.gitlab_email_handler import analyze_pipeline_errors
+from gmail_agent.gitlab_operations import analyze_pipeline_errors
 
 def use_mock_pipeline_logs(error_type=None):
     """
