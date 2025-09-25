@@ -6,8 +6,25 @@ Hỗ trợ Google Gemini API, OpenAI API và Ollama.
 import json
 import os
 import time
+import sys
+from pathlib import Path
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Literal
+
+# Tải biến môi trường một cách rõ ràng ngay từ đầu
+from dotenv import load_dotenv
+# Tải từ đường dẫn tuyệt đối và cho phép ghi đè
+env_path = Path(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+load_dotenv(dotenv_path=os.path.join(env_path, '.env'), override=True)
+
+# Thiết lập proxy dựa trên biến môi trường
+if os.getenv("GMAIL_PROXY_ENABLED", "False").lower() == "true":
+    http_proxy = os.getenv("GMAIL_PROXY_HTTP", "")
+    # Sử dụng HTTP proxy cho cả HTTP và HTTPS
+    os.environ["HTTP_PROXY"] = http_proxy
+    os.environ["HTTPS_PROXY"] = http_proxy
+    os.environ["http_proxy"] = http_proxy
+    os.environ["https_proxy"] = http_proxy
 
 # Thư mục lưu kết quả phân tích
 ANALYSIS_DIR = "email_analysis_results"
@@ -15,7 +32,6 @@ ANALYSIS_DIR = "email_analysis_results"
 # Thử import các module AI cần thiết
 try:
     import google.generativeai as genai
-    from dotenv import load_dotenv
     GENAI_AVAILABLE = True
 except ImportError:
     GENAI_AVAILABLE = False
@@ -51,15 +67,30 @@ def setup_ai_model(provider: str = "auto") -> tuple[bool, str]:
         provider: Nhà cung cấp AI ("google", "openai", "ollama", hoặc "auto" để tự động chọn)
 
     Returns:
-        tuple: (True/False, provider_name) - Trạng thái thiết lập và nhà cung cấp đang dùng
+        Tuple[bool, str]: (Thành công hay không, Tên provider đang sử dụng)
     """
-    # Tải biến môi trường
-    try:
-        from dotenv import load_dotenv
-        load_dotenv()
-    except ImportError:
-        pass
-    
+    # Load các biến môi trường nếu chưa được load
+    # load_dotenv()
+
+    # Kiểm tra cấu hình proxy
+    proxy_enabled = os.getenv("GMAIL_PROXY_ENABLED", "False").lower() == "true"
+    http_proxy = os.getenv("GMAIL_PROXY_HTTP", "")
+    https_proxy = os.getenv("GMAIL_PROXY_HTTPS", "")
+
+    # Thiết lập biến môi trường proxy nếu proxy được bật
+    if proxy_enabled:
+        # Sử dụng proxy HTTP cho cả HTTP và HTTPS để tránh lỗi "https scheme not supported"
+        os.environ["HTTP_PROXY"] = http_proxy
+        os.environ["HTTPS_PROXY"] = http_proxy  # Sử dụng HTTP proxy cho HTTPS connections
+        os.environ["http_proxy"] = http_proxy
+        os.environ["https_proxy"] = http_proxy  # Sử dụng HTTP proxy cho HTTPS connections
+        print(f"Đang sử dụng proxy cho kết nối API: {http_proxy}")
+    else:
+        # Xóa biến môi trường proxy nếu tồn tại
+        for var in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"]:
+            if var in os.environ:
+                del os.environ[var]
+
     if provider == "auto":
         # Thử thiết lập Google Gemini trước
         if GENAI_AVAILABLE:
@@ -67,12 +98,55 @@ def setup_ai_model(provider: str = "auto") -> tuple[bool, str]:
             if api_key:
                 try:
                     genai.configure(api_key=api_key)
-                    # Thử gọi API nhỏ để kiểm tra quota
-                    model = genai.GenerativeModel('gemini-1.5-flash')
-                    response = model.generate_content("Hello")
-                    if response.text:
-                        print("Đã thiết lập Google Gemini API thành công.")
-                        return True, "google"
+
+                    # Thiết lập cấu hình proxy cho Google generative AI nếu cần
+                    if proxy_enabled:
+                        try:
+                            # Thử gọi API nhỏ để kiểm tra quota
+                            model = genai.GenerativeModel('gemini-1.5-flash')
+                            response = model.generate_content("Hello")
+                            if response.text:
+                                print("Đã thiết lập Google Gemini API thành công.")
+                                return True, "google"
+                        except Exception as e:
+                            print(f"Lỗi kết nối Gemini API: {str(e)}")
+                            print("Đang thử cấu hình proxy thay thế...")
+
+                            # Thử cách thay thế với httpx
+                            try:
+                                import httpx
+
+                                # Cấu hình proxy cho httpx
+                                proxies = {
+                                    "http://": http_proxy,
+                                    "https://": http_proxy  # Dùng HTTP proxy cho HTTPS
+                                }
+
+                                # Tạo phiên httpx với proxy
+                                transport = httpx.HTTPTransport(proxy=httpx.Proxy(
+                                    url=http_proxy,
+                                    mode="TUNNEL_ONLY"  # Force sử dụng CONNECT tunneling
+                                ))
+
+                                # Áp dụng transport vào genai
+                                genai._client = genai.Client(transport=transport)
+
+                                # Thử lại
+                                model = genai.GenerativeModel('gemini-1.5-flash')
+                                response = model.generate_content("Hello")
+                                if response.text:
+                                    print("Đã thiết lập Google Gemini API thành công với cấu hình proxy thay thế.")
+                                    return True, "google"
+                            except Exception as e:
+                                print(f"Không thể sử dụng Google Gemini API với cách thay thế: {str(e)}")
+                    else:
+                        # Nếu không dùng proxy, thử kết nối trực tiếp
+                        model = genai.GenerativeModel('gemini-1.5-flash')
+                        response = model.generate_content("Hello")
+                        if response.text:
+                            print("Đã thiết lập Google Gemini API thành công (không dùng proxy).")
+                            return True, "google"
+
                 except Exception as e:
                     print(f"Không thể sử dụng Google Gemini API: {str(e)}")
                     print("Đang thử các model khác...")
@@ -83,8 +157,44 @@ def setup_ai_model(provider: str = "auto") -> tuple[bool, str]:
             if api_key:
                 try:
                     openai.api_key = api_key
-                    print("Đã thiết lập OpenAI API thành công.")
-                    return True, "openai"
+
+                    # Thiết lập proxy cho OpenAI nếu được bật
+                    if proxy_enabled:
+                        try:
+                            # Dùng HTTP proxy cho OpenAI thay vì HTTPS
+                            openai.proxy = http_proxy
+
+                            # Thử kết nối
+                            from openai import OpenAI
+                            client = OpenAI(api_key=api_key)
+                            response = client.chat.completions.create(
+                                model="gpt-3.5-turbo",
+                                messages=[{"role": "user", "content": "Hello"}],
+                                max_tokens=10
+                            )
+                            if response.choices[0].message.content:
+                                print("Đã thiết lập OpenAI API thành công.")
+                                return True, "openai"
+                        except (ImportError, AttributeError):
+                            # Thử với API cũ
+                            response = openai.ChatCompletion.create(
+                                model="gpt-3.5-turbo",
+                                messages=[{"role": "user", "content": "Hello"}],
+                                max_tokens=10
+                            )
+                            if response.choices[0].message.content:
+                                print("Đã thiết lập OpenAI API thành công (API cũ).")
+                                return True, "openai"
+                    else:
+                        # Nếu không dùng proxy
+                        response = openai.ChatCompletion.create(
+                            model="gpt-3.5-turbo",
+                            messages=[{"role": "user", "content": "Hello"}],
+                            max_tokens=10
+                        )
+                        if response.choices:
+                            print("Đã thiết lập OpenAI API thành công.")
+                            return True, "openai"
                 except Exception as e:
                     print(f"Không thể sử dụng OpenAI API: {str(e)}")
                     print("Đang thử các model khác...")
@@ -182,7 +292,7 @@ def generate_ai_prompt_for_pipeline_error(
         formatted_error_lines += f"\n... và {len(error_lines) - 10} dòng lỗi khác"
 
     # Tải biến môi trường nếu chưa được tải
-    load_dotenv()
+    # load_dotenv()
 
     # Lấy prompt từ biến môi trường
     template = os.getenv("PIPELINE_ERROR_PROMPT")

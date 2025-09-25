@@ -18,6 +18,37 @@ logger = logging.getLogger(__name__)
 # Tải biến môi trường
 load_dotenv()
 
+def get_gitlab_proxy_info():
+    """
+    Lấy thông tin cấu hình proxy cho GitLab từ biến môi trường.
+
+    Returns:
+        dict: Thông tin cấu hình proxy hoặc một dict trống nếu không có cấu hình
+    """
+    proxy_enabled = os.getenv("GITLAB_PROXY_ENABLED", "False").lower() == "true"
+
+    if not proxy_enabled:
+        # Khi proxy bị tắt, trả về dict rỗng để requests biết là không dùng proxy
+        # và xóa các biến môi trường proxy để đảm bảo không có proxy nào được sử dụng
+        if "HTTP_PROXY" in os.environ:
+            del os.environ["HTTP_PROXY"]
+        if "HTTPS_PROXY" in os.environ:
+            del os.environ["HTTPS_PROXY"]
+        if "http_proxy" in os.environ:
+            del os.environ["http_proxy"]
+        if "https_proxy" in os.environ:
+            del os.environ["https_proxy"]
+
+        return {'http': None, 'https': None}
+
+    # Thiết lập thông tin proxy
+    proxies = {
+        'http': os.getenv("GITLAB_PROXY_HTTP", ""),
+        'https': os.getenv("GITLAB_PROXY_HTTPS", "")
+    }
+
+    return proxies
+
 def get_gitlab_auth_headers():
     """
     Lấy headers xác thực cho Gitlab API.
@@ -64,9 +95,19 @@ def get_gitlab_service():
             'message': "Thiết lập GITLAB_API_TOKEN trong file .env"
         }
 
+    # Lấy cấu hình proxy
+    proxies = get_gitlab_proxy_info()
+    if proxies:
+        logger.info("Đang sử dụng proxy cho kết nối GitLab: %s", proxies['http'])
+
     try:
-        # Gọi API kiểm tra kết nối
-        response = requests.get(f"{gitlab_url}/version", headers=headers, timeout=10)
+        # Gọi API kiểm tra kết nối với proxy nếu được cấu hình
+        response = requests.get(
+            f"{gitlab_url}/version",
+            headers=headers,
+            proxies=proxies,
+            timeout=10
+        )
 
         if response.status_code == 200:
             # Kết nối thành công
@@ -99,256 +140,253 @@ def get_gitlab_service():
             'success': False,
             'error': "Kết nối đến Gitlab API bị timeout"
         }
-    except requests.exceptions.ConnectionError:
-        logger.error("Không thể kết nối đến Gitlab API")
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Lỗi kết nối Gitlab API: {str(e)}")
         return {
             'success': False,
-            'error': "Không thể kết nối đến Gitlab API"
-        }
-    except Exception as e:
-        logger.exception(f"Lỗi không xác định khi kết nối Gitlab API: {str(e)}")
-        return {
-            'success': False,
-            'error': f"Lỗi không xác định: {str(e)}"
+            'error': f"Lỗi kết nối: {str(e)}"
         }
 
-def get_pipeline_details(pipeline_id, project_id=None, pipeline_url=None):
+def check_pipeline_url_accessibility(pipeline_url):
     """
-    Lấy thông tin chi tiết về một pipeline từ Gitlab API.
+    Kiểm tra khả năng truy cập URL pipeline.
 
     Args:
-        pipeline_id: ID của pipeline
-        project_id: ID của project (nếu biết)
-        pipeline_url: URL của pipeline (dùng để trích xuất project_id nếu không có)
+        pipeline_url (str): URL pipeline cần kiểm tra
 
     Returns:
-        Dict: Thông tin về pipeline hoặc lỗi
+        bool: True nếu URL có thể truy cập, False nếu không
     """
-    # Nếu không có project_id, thử trích xuất từ URL
-    if not project_id and pipeline_url:
-        # Phân tích URL để lấy project_id
-        try:
-            url_parts = pipeline_url.split('/')
-            # URL format: https://gitlab-domain.com/path/to/project/-/pipelines/123
-            # Tìm vị trí của '-/pipelines'
-            for i, part in enumerate(url_parts):
-                if part == '-' and i+1 < len(url_parts) and url_parts[i+1] == 'pipelines':
-                    # Ghép các phần trước đó để tạo đường dẫn project
-                    project_path = '/'.join(url_parts[url_parts.index('/-/pipelines')-1])
-                    break
-        except Exception as e:
-            logger.error(f"Không thể trích xuất project_id từ URL: {str(e)}")
-            return {
-                'success': False,
-                'error': "Không thể xác định project_id từ URL",
-                'message': "Vui lòng cung cấp project_id"
-            }
-
-    # Nếu vẫn không có project_id, trả về lỗi
-    if not project_id:
-        return {
-            'success': False,
-            'error': "Không có project_id",
-            'message': "Vui lòng cung cấp project_id"
-        }
-
-    # Lấy thông tin Gitlab API từ môi trường
-    gitlab_url = os.getenv('GITLAB_API_URL')
-    headers = get_gitlab_auth_headers()
-
-    if not gitlab_url or not headers:
-        return {
-            'success': False,
-            'error': "Thiếu cấu hình Gitlab API",
-            'message': "Thiết lập GITLAB_API_URL và GITLAB_API_TOKEN trong file .env"
-        }
-
     try:
-        # Gọi API lấy thông tin pipeline
-        api_url = f"{gitlab_url}/projects/{project_id}/pipelines/{pipeline_id}"
-        response = requests.get(api_url, headers=headers, timeout=10)
+        # Lấy cấu hình proxy
+        proxies = get_gitlab_proxy_info()
 
-        if response.status_code == 200:
-            # Kết nối thành công
-            pipeline_info = response.json()
-            return {
-                'success': True,
-                'pipeline_info': pipeline_info
-            }
-        else:
-            # Xử lý lỗi
-            return {
-                'success': False,
-                'error': f"Không thể lấy thông tin pipeline. Mã trạng thái: {response.status_code}",
-                'status_code': response.status_code
-            }
+        # Gửi request kiểm tra với proxy nếu được cấu hình
+        response = requests.head(
+            pipeline_url,
+            proxies=proxies,
+            timeout=5,
+            allow_redirects=True
+        )
+
+        # Kiểm tra trạng thái response
+        return response.status_code < 400
     except Exception as e:
-        logger.exception(f"Lỗi khi lấy thông tin pipeline: {str(e)}")
-        return {
-            'success': False,
-            'error': f"Lỗi: {str(e)}"
-        }
-
-def check_pipeline_url_accessibility(url, timeout=5):
-    """
-    Kiểm tra xem URL của pipeline có thể truy cập được không.
-
-    Args:
-        url: URL cần kiểm tra
-        timeout: Thời gian chờ tối đa (giây)
-
-    Returns:
-        Tuple (bool, str): (Có thể truy cập không, Thông báo)
-    """
-    if not url:
-        return False, "Không tìm thấy URL pipeline trong email."
-
-    try:
-        # Phân tích URL để kiểm tra tính hợp lệ
-        parsed_url = urlparse(url)
-        if not parsed_url.scheme or not parsed_url.netloc:
-            return False, f"URL pipeline không hợp lệ: {url}"
-
-        # Thử truy cập URL
-        response = requests.head(url, timeout=timeout, allow_redirects=True)
-        if response.status_code < 400:
-            return True, f"URL pipeline có thể truy cập được: {url}"
-        else:
-            return False, f"URL pipeline không thể truy cập. Mã trạng thái: {response.status_code}"
-
-    except requests.exceptions.Timeout:
-        return False, f"Kết nối đến URL pipeline bị time out: {url}"
-
-    except requests.exceptions.ConnectionError:
-        return False, f"Không thể kết nối đến URL pipeline: {url}"
-
-    except Exception as e:
-        return False, f"Lỗi khi kiểm tra URL pipeline: {str(e)}"
-
-def extract_job_id_from_url(job_url):
-    """
-    Trích xuất job ID từ URL của job.
-
-    Args:
-        job_url: URL của job Gitlab
-
-    Returns:
-        Tuple (project_id, job_id) hoặc (None, None) nếu không thể trích xuất
-    """
-    # Pattern URL Gitlab job: https://gitlab-domain.com/group/project/-/jobs/123456
-
-    # Tìm project path và job ID từ URL
-    match = re.search(r'https?://[^/]+/(.+?)/-/jobs/(\d+)', job_url)
-    if not match:
-        logger.warning(f"Không thể trích xuất job ID từ URL: {job_url}")
-        return None, None
-
-    project_path = match.group(1)
-    job_id = match.group(2)
-
-    # Mã hóa project path cho API
-    encoded_project_path = urllib.parse.quote_plus(project_path)
-
-    return encoded_project_path, job_id
-
-def get_job_log(job_url):
-    """
-    Lấy log của job từ Gitlab API.
-
-    Args:
-        job_url: URL của job cần lấy log
-
-    Returns:
-        Dict: Thông tin về job và log hoặc lỗi
-    """
-    # Lấy gitlab API URL và headers
-    gitlab_url = os.getenv('GITLAB_API_URL')
-    headers = get_gitlab_auth_headers()
-
-    if not gitlab_url or not headers:
-        logger.error("Thiếu cấu hình Gitlab API URL hoặc token")
-        return {
-            'success': False,
-            'error': "Thiếu cấu hình Gitlab API"
-        }
-
-    # Trích xuất project ID và job ID từ URL
-    project_path, job_id = extract_job_id_from_url(job_url)
-    if not project_path or not job_id:
-        return {
-            'success': False,
-            'error': f"Không thể trích xuất thông tin từ job URL: {job_url}"
-        }
-
-    try:
-        # Lấy thông tin chi tiết về job
-        job_url = f"{gitlab_url}/projects/{project_path}/jobs/{job_id}"
-        response = requests.get(job_url, headers=headers, timeout=15)
-
-        if response.status_code != 200:
-            logger.error(f"Lỗi khi lấy thông tin job: HTTP {response.status_code}")
-            return {
-                'success': False,
-                'error': f"Không thể lấy thông tin job. HTTP {response.status_code}"
-            }
-
-        job_info = response.json()
-
-        # Lấy trace log của job
-        trace_url = f"{gitlab_url}/projects/{project_path}/jobs/{job_id}/trace"
-        trace_response = requests.get(trace_url, headers=headers, timeout=15)
-
-        if trace_response.status_code != 200:
-            logger.error(f"Lỗi khi lấy log job: HTTP {trace_response.status_code}")
-            return {
-                'success': False,
-                'job_info': job_info,
-                'error': f"Không thể lấy log job. HTTP {trace_response.status_code}"
-            }
-
-        # Trả về thông tin job và log
-        return {
-            'success': True,
-            'job_info': job_info,
-            'job_log': trace_response.text,
-            'job_status': job_info.get('status', 'unknown')
-        }
-
-    except Exception as e:
-        logger.exception(f"Lỗi khi truy cập Gitlab API: {str(e)}")
-        return {
-            'success': False,
-            'error': f"Lỗi khi truy cập Gitlab API: {str(e)}"
-        }
+        logger.warning(f"Không thể truy cập pipeline URL {pipeline_url}: {str(e)}")
+        return False
 
 def find_and_get_failed_job_log(job_urls):
     """
-    Tìm và lấy log của job thất bại đầu tiên từ danh sách job URLs.
+    Tìm và lấy log từ các job pipeline thất bại trong GitLab.
 
     Args:
-        job_urls: Danh sách các URL job
+        job_urls (list): Danh sách các URL của các job cần kiểm tra
 
     Returns:
-        Dict: Log và thông tin của job thất bại đầu tiên hoặc lỗi
+        dict: Kết quả truy vấn bao gồm log của job thất bại đầu tiên và thông tin job
     """
+    import requests
+    import os
+    from urllib.parse import urlparse
+
     if not job_urls:
-        return {
-            'success': False,
-            'error': "Không có job URL nào được cung cấp"
-        }
+        logger.warning("Không có URL job nào để kiểm tra")
+        return {'success': False, 'error': "Không có URL job nào để kiểm tra"}
 
-    # Kiểm tra từng job URL
+    # Lấy thông tin proxy
+    proxies = get_gitlab_proxy_info()
+
+    # Lấy headers xác thực
+    headers = get_gitlab_auth_headers()
+
+    if not headers:
+        return {'success': False, 'error': "Không có token xác thực GitLab API"}
+
+    # Base URL của GitLab API
+    gitlab_api_url = os.getenv('GITLAB_API_URL')
+
+    if not gitlab_api_url:
+        return {'success': False, 'error': "GITLAB_API_URL không được cấu hình"}
+
+    # Vô hiệu hóa cảnh báo về SSL
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
     for job_url in job_urls:
-        result = get_job_log(job_url)
+        try:
+            # Phân tích URL để lấy project ID và job ID
+            parsed_url = urlparse(job_url)
+            path_parts = parsed_url.path.strip('/').split('/')
 
-        # Nếu lấy thông tin job thành công
-        if result.get('success'):
-            # Kiểm tra xem job có thất bại không (failed hoặc error)
-            status = result.get('job_status', '').lower()
-            if status in ['failed', 'error', 'canceled']:
-                logger.info(f"Đã tìm thấy job thất bại: {job_url} (status: {status})")
-                return result
+            if len(path_parts) < 4:
+                logger.warning(f"URL job không hợp lệ: {job_url}")
+                continue
 
-    # Nếu không tìm thấy job thất bại, trả về job đầu tiên
-    logger.info("Không tìm thấy job thất bại, lấy job đầu tiên")
-    return get_job_log(job_urls[0])
+            # Định dạng của URL job là: /<namespace>/<project>/-/jobs/<job_id>
+            # hoặc /<group>/<namespace>/<project>/-/jobs/<job_id>
+            job_id = path_parts[-1]  # ID job là phần tử cuối cùng
+
+            # Tìm vị trí của '-/jobs' trong đường dẫn
+            try:
+                jobs_index = path_parts.index('-')
+                if jobs_index > 0 and path_parts[jobs_index + 1] == 'jobs':
+                    project_path = '/'.join(path_parts[:jobs_index])
+                else:
+                    logger.warning(f"URL job không đúng định dạng: {job_url}")
+                    continue
+            except ValueError:
+                logger.warning(f"URL job không đúng định dạng: {job_url}")
+                continue
+
+            # URL encode project path
+            project_path_encoded = urllib.parse.quote_plus(project_path)
+
+            # API endpoint để lấy thông tin job
+            job_info_url = f"{gitlab_api_url}/projects/{project_path_encoded}/jobs/{job_id}"
+
+            # Gọi API để lấy thông tin job với verify=False để bỏ qua xác thực SSL
+            job_response = requests.get(
+                job_info_url,
+                headers=headers,
+                proxies=proxies,
+                timeout=10,
+                verify=False  # Bỏ qua xác thực SSL cho self-signed certificate
+            )
+
+            if job_response.status_code != 200:
+                logger.warning(f"Không thể lấy thông tin job {job_id}: HTTP {job_response.status_code}")
+                continue
+
+            job_info = job_response.json()
+
+            # Kiểm tra trạng thái job
+            if job_info.get('status') != 'failed':
+                logger.info(f"Job {job_id} không ở trạng thái thất bại (status={job_info.get('status')})")
+                continue
+
+            # API endpoint để lấy trace (log) của job
+            job_trace_url = f"{job_info_url}/trace"
+
+            # Gọi API để lấy log của job với verify=False để bỏ qua xác thực SSL
+            trace_response = requests.get(
+                job_trace_url,
+                headers=headers,
+                proxies=proxies,
+                timeout=15,
+                verify=False  # Bỏ qua xác thực SSL cho self-signed certificate
+            )
+
+            if trace_response.status_code != 200:
+                logger.warning(f"Không thể lấy log của job {job_id}: HTTP {trace_response.status_code}")
+                continue
+
+            # Lấy nội dung log
+            job_log = trace_response.text
+
+            logger.info(f"Đã lấy được log của job thất bại {job_id}")
+            logger.info(f"Danh sách các job URLs: {job_urls}")
+
+            # Tạo thư mục logs nếu chưa tồn tại
+            log_dir = os.path.join(os.getcwd(), "gitlab_job_logs")
+            os.makedirs(log_dir, exist_ok=True)
+
+            # Tạo tên file log với timestamp
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            log_filename = f"job_{job_id}_{project_path.replace('/', '_')}_{timestamp}.log"
+            log_filepath = os.path.join(log_dir, log_filename)
+
+            # Ghi log ra file
+            try:
+                with open(log_filepath, 'w', encoding='utf-8') as log_file:
+                    log_file.write(f"Job ID: {job_id}\n")
+                    log_file.write(f"Project: {project_path}\n")
+                    log_file.write(f"Status: {job_info.get('status')}\n")
+                    log_file.write(f"Created at: {job_info.get('created_at')}\n")
+                    log_file.write(f"Started at: {job_info.get('started_at')}\n")
+                    log_file.write(f"Finished at: {job_info.get('finished_at')}\n")
+                    log_file.write("\n--- JOB LOG ---\n\n")
+                    log_file.write(job_log)
+                logger.info(f"Đã lưu log vào file: {log_filepath}")
+            except Exception as e:
+                logger.error(f"Không thể ghi log ra file: {str(e)}")
+
+            # Phân tích log với AI
+            try:
+                # Kiểm tra xem module phân tích AI có khả dụng không
+                from gmail_agent.open_ai_analyzer import analyze_pipeline_error_with_ai, list_available_ai_providers
+
+                # Tạo dữ liệu pipeline logs cho phân tích AI
+                # Tách log thành các dòng và tìm các dòng lỗi
+                log_lines = job_log.splitlines()
+                error_lines = []
+                for line in log_lines:
+                    if any(err_term in line.lower() for err_term in ['error', 'exception', 'failed', 'failure', 'lỗi']):
+                        error_lines.append(line.strip())
+
+                # Giới hạn số dòng lỗi
+                error_lines = error_lines[:20]
+
+                # Chuẩn bị dữ liệu cho phân tích AI
+                pipeline_logs = {
+                    "success": True,
+                    "job_links": job_urls,
+                    "error_lines": error_lines,
+                    "logs": job_log[:5000] if job_log else None  # Giới hạn độ dài để tránh quá tải
+                }
+
+                # Tạo thông tin dự án
+                project_info = {
+                    "project_name": project_path,
+                    "commit_id": job_info.get('commit_ref_name', job_info.get('ref', 'unknown')),
+                    "environment": job_info.get('stage', 'unknown'),
+                    "error_type": "build_error"  # Giả định ban đầu, sẽ được phân tích chính xác hơn trong hàm phân tích
+                }
+
+                # Phân tích lỗi với AI
+                logger.info(f"Đang phân tích log với AI...")
+                ai_result = analyze_pipeline_error_with_ai(pipeline_logs, project_info)
+
+                if ai_result:
+                    logger.info(f"Phân tích AI hoàn tất: {ai_result.get('provider')} - {ai_result.get('model')}")
+
+                    # Lưu kết quả phân tích AI vào file JSON
+                    ai_result_dir = os.path.join(os.getcwd(), "email_analysis_results")
+                    os.makedirs(ai_result_dir, exist_ok=True)
+                    ai_result_filename = f"ai_analysis_{project_path.replace('/', '_')}_{job_id}_{timestamp}.json"
+                    ai_result_filepath = os.path.join(ai_result_dir, ai_result_filename)
+
+                    with open(ai_result_filepath, 'w', encoding='utf-8') as ai_file:
+                        json.dump(ai_result, ai_file, ensure_ascii=False, indent=2)
+                    logger.info(f"Kết quả phân tích AI đã được lưu vào: {ai_result_filepath}")
+
+                    # Thêm kết quả AI vào kết quả trả về
+                    return {
+                        'success': True,
+                        'job_info': job_info,
+                        'job_log': job_log,
+                        'log_filepath': log_filepath if 'log_filepath' in locals() else None,
+                        'ai_analysis': ai_result,
+                        'ai_result_filepath': ai_result_filepath
+                    }
+
+            except ImportError:
+                logger.warning("Không thể import module phân tích AI. Bỏ qua phân tích AI.")
+            except Exception as e:
+                logger.error(f"Lỗi khi phân tích log với AI: {str(e)}")
+
+            return {
+                'success': True,
+                'job_info': job_info,
+                'job_log': job_log,
+                'log_filepath': log_filepath if 'log_filepath' in locals() else None
+            }
+
+        except Exception as e:
+            logger.error(f"Lỗi khi xử lý job URL {job_url}: {str(e)}")
+
+    # Nếu không tìm thấy job thất bại nào
+    return {
+        'success': False,
+        'error': "Không tìm thấy job thất bại nào hoặc không thể lấy log"
+    }

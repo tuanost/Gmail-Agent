@@ -21,14 +21,14 @@ load_dotenv()
 # Định nghĩa các phạm vi truy cập
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
-def get_proxy_info():
+def get_gmail_proxy_info():
     """
-    Lấy thông tin cấu hình proxy từ biến môi trường.
+    Lấy thông tin cấu hình proxy cho Gmail từ biến môi trường.
 
     Returns:
         dict: Thông tin cấu hình proxy hoặc None nếu không có cấu hình
     """
-    proxy_enabled = os.getenv("PROXY_ENABLED", "False").lower() == "true"
+    proxy_enabled = os.getenv("GMAIL_PROXY_ENABLED", "False").lower() == "true"
 
     if not proxy_enabled:
         return None
@@ -36,14 +36,14 @@ def get_proxy_info():
     proxy_info = {
         'proxy_info': httplib2.ProxyInfo(
             httplib2.socks.PROXY_TYPE_HTTP,
-            os.getenv("PROXY_HTTP", "").split('://')[1].split(':')[0],
-            int(os.getenv("PROXY_HTTP", "").split('://')[1].split(':')[1]),
+            os.getenv("GMAIL_PROXY_HTTP", "").split('://')[1].split(':')[0],
+            int(os.getenv("GMAIL_PROXY_HTTP", "").split('://')[1].split(':')[1]),
         )
     }
 
     # Thiết lập các biến môi trường cho thư viện requests
-    os.environ["HTTP_PROXY"] = os.getenv("PROXY_HTTP", "")
-    os.environ["HTTPS_PROXY"] = os.getenv("PROXY_HTTPS", "")
+    os.environ["HTTP_PROXY"] = os.getenv("GMAIL_PROXY_HTTP", "")
+    os.environ["HTTPS_PROXY"] = os.getenv("GMAIL_PROXY_HTTPS", "")
 
     return proxy_info
 
@@ -75,15 +75,15 @@ def get_gmail_service():
                 exit(1)
 
             # Kiểm tra cấu hình proxy
-            proxy_enabled = os.getenv("PROXY_ENABLED", "False").lower() == "true"
+            proxy_enabled = os.getenv("GMAIL_PROXY_ENABLED", "False").lower() == "true"
             if proxy_enabled:
-                logger.info("Đang sử dụng proxy cho quá trình xác thực: %s", os.getenv("PROXY_HTTP", ""))
+                logger.info("Đang sử dụng proxy cho quá trình xác thực Gmail: %s", os.getenv("GMAIL_PROXY_HTTP", ""))
                 # Cấu hình proxy cho quá trình xác thực OAuth
                 import socket
                 import socks
 
                 # Lấy host và port từ cấu hình proxy
-                proxy_parts = os.getenv("PROXY_HTTP", "").split('://')
+                proxy_parts = os.getenv("GMAIL_PROXY_HTTP", "").split('://')
                 if len(proxy_parts) > 1:
                     host_port = proxy_parts[1].split(':')
                     if len(host_port) > 1:
@@ -99,14 +99,17 @@ def get_gmail_service():
             pickle.dump(creds, token)
 
     # Kiểm tra thông tin proxy
-    proxy_info = get_proxy_info()
+    proxy_info = get_gmail_proxy_info()
 
-    # Tạo HTTP object với cấu hình proxy nếu được bật
+    # Tạo dịch vụ Gmail API với cấu hình proxy nếu được bật
     if proxy_info:
-        logger.info("Đang kết nối Gmail API qua proxy: %s", os.getenv("PROXY_HTTP", ""))
-        http = httplib2.Http(proxy_info=proxy_info['proxy_info'])
-        # Tạo dịch vụ Gmail API với HTTP object đã cấu hình proxy
-        service = build('gmail', 'v1', credentials=creds, http=http)
+        logger.info("Đang kết nối Gmail API qua proxy: %s", os.getenv("GMAIL_PROXY_HTTP", ""))
+        # Sử dụng proxy settings thông qua biến môi trường để Google API client tự nhận diện
+        os.environ["HTTP_PROXY"] = os.getenv("GMAIL_PROXY_HTTP", "")
+        os.environ["HTTPS_PROXY"] = os.getenv("GMAIL_PROXY_HTTPS", "")
+
+        # Tạo dịch vụ Gmail API chỉ với credentials
+        service = build('gmail', 'v1', credentials=creds)
     else:
         # Tạo dịch vụ Gmail API mà không có proxy
         service = build('gmail', 'v1', credentials=creds)

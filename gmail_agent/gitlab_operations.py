@@ -482,12 +482,18 @@ def analyze_gitlab_email(message):
         "environment": project_info["environment"],
         "is_failed_pipeline": is_failed_pipeline_email(message),
         "job_urls": job_urls,
-        "job_count": len(job_urls)
+        "job_count": len(job_urls),
+        "pipeline_url": extract_pipeline_url(message),  # Thêm pipeline_url
+        "pipeline_url_accessible": False,  # Mặc định là False
+        "accessibility_message": "Chưa kiểm tra khả năng truy cập",  # Thông báo mặc định
+        "pipeline_logs": None  # Khởi tạo giá trị rỗng cho pipeline_logs
     }
 
     # Nếu tìm thấy job URLs và đây là email thông báo pipeline thất bại
     if job_urls and result["is_failed_pipeline"]:
         logger.info(f"Đã trích xuất được {len(job_urls)} job URLs từ email")
+        # In ra danh sách các job URLs
+        logger.info(f"Danh sách job URLs: {job_urls}")
 
         # Import hàm từ gitlab_auth để lấy log từ job thất bại
         from gmail_agent.gitlab_auth import find_and_get_failed_job_log
