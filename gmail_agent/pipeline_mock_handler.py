@@ -4,7 +4,6 @@ Cho phép sử dụng mock data khi không thể truy cập URL pipeline do gi�
 """
 
 from gmail_agent.pipeline_mock_data import get_mock_pipeline_logs, get_all_mock_error_types
-from gmail_agent.gitlab_operations import analyze_pipeline_errors
 
 def use_mock_pipeline_logs(error_type=None):
     """
@@ -45,36 +44,36 @@ def use_mock_pipeline_logs(error_type=None):
     if error_type in available_error_types:
         mock_logs = get_mock_pipeline_logs(error_type)
 
-        # Hiển thị thông tin cơ bản về mock data
+        # Hiển thị thông tin cơ bản về mock data (chỉ hiển thị logs)
+        # Lấy phần logs để hiển thị và phân tích
+        logs_to_show = None
+        if isinstance(mock_logs, dict) and "logs" in mock_logs:
+            logs_raw = mock_logs["logs"]
+            if isinstance(logs_raw, str):
+                logs_to_show = logs_raw.splitlines()
+            elif isinstance(logs_raw, list):
+                logs_to_show = logs_raw
+        elif isinstance(mock_logs, list):
+            logs_to_show = mock_logs
+
+        # Hiển thị logs
         print(f"\n===== MOCK DATA CHO LỖI: {error_type.replace('_', ' ').upper()} =====")
+        if logs_to_show and any(line.strip() for line in logs_to_show):
+            for idx, line in enumerate(logs_to_show, 1):
+                print(f"{idx}. {line}")
+        else:
+            print("Không có dữ liệu logs để hiển thị.")
 
-        # Hiển thị các dòng lỗi từ mock data
-        if mock_logs.get('error_lines'):
-            print("\nCác dòng lỗi phát hiện được:")
-            for i, error_line in enumerate(mock_logs['error_lines'][:5], 1):
-                print(f"{i}. {error_line}")
-            if len(mock_logs['error_lines']) > 5:
-                print(f"... và {len(mock_logs['error_lines']) - 5} dòng lỗi khác")
+        # Phân tích log bằng AI model
+        from gmail_agent.ai_models import AIModelService
+        ai_service = AIModelService()
+        # Tạo prompt cho pipeline log (mock data là pipeline)
+        prompt = ai_service._create_gitlab_analysis_prompt("\n".join(logs_to_show))
+        ai_result = ai_service.analyze_with_prompt(prompt)
+        print("\n===== KẾT QUẢ PHÂN TÍCH AI =====")
+        print(ai_result)
 
-        # Phân tích lỗi dựa trên mock data
-        analysis_result = analyze_pipeline_errors(mock_logs)
-
-        # Hiển thị kết quả phân tích
-        print("\n===== KẾT QUẢ PHÂN TÍCH LỖI =====")
-        print(f"Phân tích: {analysis_result['analysis']}")
-        print(f"Loại lỗi: {analysis_result['error_type']}")
-
-        print("\nGợi ý cách khắc phục:")
-        for i, suggestion in enumerate(analysis_result['suggestions'], 1):
-            print(f"{i}. {suggestion}")
-
-        # Hiển thị các liên kết tới job cụ thể
-        if mock_logs.get('job_links'):
-            print("\nLiên kết đến các job cụ thể (mô phỏng):")
-            for i, job_link in enumerate(mock_logs['job_links'], 1):
-                print(f"{i}. {job_link}")
-
-        return analysis_result
+        return mock_logs
     else:
         print(f"Không tìm thấy mock data cho loại lỗi: {error_type}")
         print(f"Các loại lỗi có sẵn: {', '.join(available_error_types)}")

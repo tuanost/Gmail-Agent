@@ -29,6 +29,24 @@ DEFAULT_AI_PROVIDER = os.getenv("DEFAULT_AI_PROVIDER")
 
 def analyze_email_with_prompt(email_body: str, prompt: str) -> Dict[str, Any]:
     """
+    Phân tích email với prompt tùy chỉnh.
+
+    Args:
+        email_body: Nội dung email cần phân tích
+        prompt: Prompt hoàn chỉnh hoặc chỉ dẫn ngắn
+
+    Returns:
+        Kết quả phân tích dạng dictionary
+    """
+    ai_service = AIModelService()
+    # Nếu prompt chưa phải prompt hoàn chỉnh, tạo bằng _create_email_analysis_prompt
+    if not any(key in prompt for key in ["phan_tich", "goi_y_reply", "goi_y_chinh_sua", "tom_tat", "nguyen_nhan"]):
+        prompt = ai_service._create_email_analysis_prompt(email_body, prompt)
+    result = ai_service.analyze_with_prompt(prompt)
+    return result
+
+def analyze_email_with_prompt(email_body: str, prompt: str) -> Dict[str, Any]:
+    """
     Phân tích email dựa trên prompt từ người dùng sử dụng mô hình AI.
 
     Args:
@@ -38,17 +56,24 @@ def analyze_email_with_prompt(email_body: str, prompt: str) -> Dict[str, Any]:
     Returns:
         Kết quả phân tích dựa trên prompt
     """
-    logger.info(f"Đang phân tích email với prompt: {prompt[:50]}...")
-
     try:
-        # Tạo đối tượng AIModelService với nhà cung cấp mô hình từ cấu hình
-        ai_service = AIModelService(model_provider=DEFAULT_AI_PROVIDER)
+        # Sử dụng AI provider và model đã được chọn bởi người dùng
+        selected_provider = os.environ.get("CURRENT_AI_PROVIDER", DEFAULT_AI_PROVIDER)
+        selected_model = os.environ.get("CURRENT_AI_MODEL", None)
+
+        # Tạo đối tượng AIModelService với nhà cung cấp và model được chọn
+        ai_service = AIModelService(
+            model_provider=selected_provider,
+            model_name=selected_model
+        )
 
         # Gửi nội dung email và prompt đến mô hình AI để phân tích
         result = ai_service.analyze_email(email_body, prompt)
 
-        # Lưu prompt đã sử dụng vào kết quả để tham khảo sau này
+        # Lưu prompt đã sử dụng và thông tin model vào kết quả để tham khảo sau này
         result["prompt_su_dung"] = prompt
+        result["ai_provider"] = selected_provider
+        result["ai_model"] = selected_model
 
         # Kiểm tra lỗi
         if result.get("error", False):
@@ -56,11 +81,10 @@ def analyze_email_with_prompt(email_body: str, prompt: str) -> Dict[str, Any]:
             # Fallback: Sử dụng phương thức phân tích cục bộ nếu gọi API thất bại
             return _legacy_analyze_email(email_body, prompt)
 
-        logger.info("Đã phân tích email thành công")
         return result
 
     except Exception as e:
-        logger.exception(f"Lỗi khi phân tích email với AI: {str(e)}")
+        logger.error(f"Lỗi khi phân tích email với AI: {str(e)}")
         # Fallback: Sử dụng phương thức phân tích cục bộ
         return _legacy_analyze_email(email_body, prompt)
 
@@ -77,93 +101,10 @@ def _legacy_analyze_email(email_body: str, prompt: str) -> Dict[str, Any]:
     """
     logger.warning("Sử dụng phân tích legacy vì không thể kết nối đến API AI")
 
-    # Mặc định xử lý chung
-    result = {
-        "prompt_su_dung": prompt,
-        "phan_tich": "Không thể kết nối tới API AI. Đây là phân tích cục bộ đơn giản."
-    }
-
-    return result
-
-def format_analysis_result(result: Dict[str, Any]) -> str:
-    """
-    Định dạng kết quả phân tích để hiển thị cho người dùng.
-
-    Args:
-        result: Kết quả phân tích từ hàm analyze_email_with_prompt
-
-    Returns:
-        Chuỗi đã định dạng để hiển thị
-    """
-    output = "===== KẾT QUẢ PHÂN TÍCH EMAIL =====\n\n"
-
-    # Hiển thị prompt được sử dụng cho phân tích ở đầu kết quả
-    if "prompt_su_dung" in result:
-        output += "🔍 PROMPT ĐÃ SỬ DỤNG:\n"
-        output += f"{result['prompt_su_dung']}\n\n"
-
-    # Hiển thị thông tin về chuỗi hội thoại nếu có
-    if "subject" in result:
-        output += f"📧 CHỦ ĐỀ: {result['subject']}\n"
-
-    if "message_count" in result:
-        output += f"📊 SỐ TIN NHẮN: {result['message_count']}\n\n"
-
-    # Phân tích
-    if "phan_tich" in result and result["phan_tich"]:
-        output += "📌 PHÂN TÍCH:\n"
-        output += _format_analysis_content(result["phan_tich"])
-
-    # Thêm các trường phân tích hội thoại nếu có
-    _append_conversation_analysis(result, output)
-
-    return output
-
-def _format_analysis_content(content: Union[str, List[str], Dict[str, Any]]) -> str:
-    """
-    Định dạng nội dung phân tích dựa trên loại dữ liệu.
-
-    Args:
-        content: Nội dung phân tích (chuỗi, danh sách hoặc dictionary)
-
-    Returns:
-        Chuỗi đã định dạng
-    """
-    formatted_output = ""
-
-    if isinstance(content, str):
-        formatted_output = content + "\n\n"
-    elif isinstance(content, list):
-        for item in content:
-            formatted_output += f"  • {item}\n"
-        formatted_output += "\n"
-    elif isinstance(content, dict):
-        for key, value in content.items():
-            formatted_output += f"  • {key}: {value}\n"
-        formatted_output += "\n"
-
-    return formatted_output
-
-def _append_conversation_analysis(result: Dict[str, Any], output: str) -> None:
-    """
-    Thêm các trường phân tích hội thoại vào output nếu có.
-
-    Args:
-        result: Kết quả phân tích
-        output: Chuỗi output để thêm vào
-    """
-    conversation_fields = {
-        "chu_de_chinh": "CHỦ ĐỀ CHÍNH",
-        "dien_bien": "DIỄN BIẾN HỘI THOẠI",
-        "nguoi_tham_gia": "NGƯỜI THAM GIA",
-        "cac_van_de": "CÁC VẤN ĐỀ",
-        "ket_luan": "KẾT LUẬN"
-    }
-
-    for field, title in conversation_fields.items():
-        if field in result and result[field]:
-            output += f"📝 {title}:\n"
-            output += _format_analysis_content(result[field])
+    ai_service = AIModelService()
+    if not any(key in prompt for key in ["phan_tich", "goi_y_reply", "goi_y_chinh_sua", "tom_tat", "nguyen_nhan"]):
+        prompt = ai_service._create_email_analysis_prompt(email_body, prompt)
+    return ai_service.analyze_with_prompt(prompt)
 
 def save_analysis_result(result: Dict[str, Any], file_name: str) -> str:
     """

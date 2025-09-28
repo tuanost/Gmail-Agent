@@ -320,7 +320,7 @@ def find_and_get_failed_job_log(job_urls):
             # Phân tích log với AI
             try:
                 # Kiểm tra xem module phân tích AI có khả dụng không
-                from gmail_agent.pipeline_ai_analyzer import analyze_pipeline_error_with_ai, list_available_ai_providers
+                from gmail_agent.pipeline_ai_analyzer import analyze_pipeline_error_with_ai, discover_available_models
 
                 # Tạo dữ liệu pipeline logs cho phân tích AI
                 # Tách log thành các dòng và tìm các dòng lỗi

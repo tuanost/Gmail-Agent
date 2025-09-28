@@ -22,8 +22,7 @@ load_dotenv(dotenv_path=env_file, override=True)
 # Import ai_connector để kết nối với các model AI
 from gmail_agent.ai_connector import (
     generate_ai_response,
-    setup_ai_model,
-    list_available_ai_providers,
+    discover_available_models,
     list_ollama_models
 )
 
@@ -132,7 +131,7 @@ def analyze_pipeline_error_with_ai(
         print(f"Không thể lấy phản hồi từ AI: {ai_response}")
         # Thử provider khác nếu đang dùng "auto"
         if provider == "auto":
-            providers = list_available_ai_providers()
+            providers = discover_available_models()
             current_provider = result_info.get("provider", "")
 
             if current_provider and current_provider in providers:

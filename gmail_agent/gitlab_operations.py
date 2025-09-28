@@ -5,10 +5,8 @@ Module này cung cấp các chức năng xử lý email từ Gitlab, phân tích
 
 import re
 import requests
-import json
 from bs4 import BeautifulSoup
 import base64
-import html
 import logging
 from urllib.parse import urlparse
 import os
@@ -32,7 +30,7 @@ except ImportError:
 try:
     from gmail_agent.pipeline_ai_analyzer import (
         analyze_pipeline_error_with_ai,
-        list_available_ai_providers,
+        discover_available_models,
         list_ollama_models
     )
     OPEN_AI_ANALYZER_AVAILABLE = True
@@ -113,11 +111,9 @@ def is_failed_pipeline_email(message):
     """
     if not is_gitlab_pipeline_email(message):
         return False
-
     from gmail_agent.gmail_operations import get_email_subject
-    subject = get_email_subject(message)
-
-    return "failed" in subject.lower()
+    subject = get_email_subject(message).lower()
+    return "failed pipeline" in subject
 
 def extract_pipeline_url(message):
     """
@@ -154,31 +150,66 @@ def extract_pipeline_url(message):
 
 def extract_job_urls(message):
     """
-    Trích xuất trực tiếp các URL job từ email Gitlab.
+    Trích xuất trực tiếp các URL job từ email Gitlab và tên step tương ứng.
 
     Args:
         message: Đối tượng tin nhắn từ Gmail API
 
     Returns:
-        List[str]: Danh sách các URL job hoặc danh sách trống nếu không tìm thấy
+        Dict[str, str]: Mapping từ tên step đến job URL
     """
-    # Lấy nội dung HTML
+    import re
     html_content = extract_raw_html_content(message)
+    job_map = {}
 
-    if not html_content:
-        return []
+    if html_content:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        job_url_pattern = re.compile(r"https?://[\w\.-]+.*/-/jobs/\d+")
+        for link in soup.find_all('a'):
+            href = link.get('href')
+            if href and job_url_pattern.match(href):
+                # Try to get step name from anchor text
+                step_name = link.text.strip()
+                # If anchor text is empty, try to get from previous sibling or parent
+                if not step_name:
+                    parent = link.parent
+                    if parent:
+                        # Try previous sibling text
+                        prev = link.find_previous(string=True)
+                        if prev:
+                            step_name = prev.strip()
+                        # Try parent text
+                        elif parent.text:
+                            step_name = parent.text.strip()
+                # Fallback: use job URL as step name if not found
+                if not step_name:
+                    step_name = href
+                job_map[step_name] = href
+    else:
+        payload = message.get('payload', {})
+        text_content = ""
+        if 'parts' in payload:
+            for part in payload['parts']:
+                if part.get('mimeType') == 'text/plain' and 'data' in part.get('body', {}):
+                    try:
+                        text_content += base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+                    except Exception:
+                        pass
+        elif 'body' in payload and 'data' in payload['body']:
+            try:
+                text_content += base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8')
+            except Exception:
+                pass
+        job_url_pattern = re.compile(r"https?://[\w\.-]+.*/-/jobs/\d+")
+        for match in job_url_pattern.finditer(text_content):
+            url = match.group(0)
+            # Fallback: use URL as step name
+            job_map[url] = url
 
-    # Sử dụng BeautifulSoup để phân tích HTML
-    soup = BeautifulSoup(html_content, 'html.parser')
-
-    # Tìm các liên kết chứa từ khóa "job" hoặc "build"
-    job_links = []
-    for link in soup.find_all('a'):
-        href = link.get('href')
-        if href and ('job' in href.lower() or 'build' in href.lower()):
-            job_links.append(href)
-
-    return job_links
+    print("Danh sách job URLs:")
+    for step, url in job_map.items():
+        print(f"{step}: '{url}',")
+    return job_map
 
 def extract_pipeline_logs(pipeline_url):
     """
@@ -275,135 +306,6 @@ def extract_pipeline_logs(pipeline_url):
             "logs": None
         }
 
-def analyze_pipeline_errors(pipeline_logs):
-    """
-    Phân tích log lỗi và đưa ra gợi ý cách sửa.
-
-    Args:
-        pipeline_logs: Dictionary chứa thông tin log lỗi từ hàm extract_pipeline_logs
-
-    Returns:
-        Dictionary chứa phân tích và gợi ý cách sửa
-    """
-    if not pipeline_logs or not pipeline_logs["success"]:
-        return {
-            "analysis": "Không thể phân tích do không có dữ liệu log",
-            "error_type": "unknown",
-            "suggestions": ["Kiểm tra quyền truy cập vào pipeline URL"]
-        }
-
-    # Khởi tạo kết quả
-    analysis = {
-        "analysis": "",
-        "error_type": "unknown",
-        "suggestions": []
-    }
-
-    # Logs để phân tích
-    logs = pipeline_logs.get("logs", "")
-    error_lines = pipeline_logs.get("error_lines", [])
-
-    # Nếu không có dữ liệu log
-    if not logs and not error_lines:
-        analysis["analysis"] = "Không tìm thấy log lỗi cụ thể để phân tích"
-        analysis["suggestions"].append("Kiểm tra trực tiếp trên giao diện Gitlab để xem chi tiết lỗi")
-        return analysis
-
-    # Phân tích các lỗi phổ biến
-
-    # 1. Lỗi xây dựng (Build errors)
-    if logs and any(term in logs.lower() for term in ["build failed", "compilation error", "compiler error"]):
-        analysis["error_type"] = "build_error"
-        analysis["analysis"] = "Phát hiện lỗi trong quá trình xây dựng (build)"
-
-        # Phân tích chi tiết hơn về lỗi xây dựng
-        if "cannot find symbol" in logs.lower():
-            analysis["analysis"] += ": Không tìm thấy ký hiệu/class/method được tham chiếu"
-            analysis["suggestions"] = [
-                "Kiểm tra tên biến, class hoặc method có đúng không",
-                "Kiểm tra xem bạn đã import các package cần thiết chưa",
-                "Xác nhận rằng các dependencies đã được cài đặt đầy đủ"
-            ]
-        elif "syntax error" in logs.lower():
-            analysis["analysis"] += ": Lỗi cú pháp trong code"
-            analysis["suggestions"] = [
-                "Kiểm tra cú pháp: dấu chấm phẩy, ngoặc đơn, ngoặc nhọn",
-                "Tìm và sửa lỗi cú pháp tại các vị trí được chỉ ra trong log"
-            ]
-        else:
-            analysis["suggestions"] = [
-                "Kiểm tra log lỗi để xác định file và dòng cụ thể có lỗi",
-                "Xác nhận rằng code được commit đã được xây dựng và kiểm thử trên môi trường local",
-                "Kiểm tra các dependencies và phiên bản có tương thích không"
-            ]
-
-    # 2. Lỗi kiểm thử (Test failures)
-    elif logs and any(term in logs.lower() for term in ["test failed", "assertion error", "expected", "actual", "junit"]):
-        analysis["error_type"] = "test_failure"
-        analysis["analysis"] = "Phát hiện lỗi trong quá trình kiểm thử (test)"
-        analysis["suggestions"] = [
-            "Kiểm tra các test case không thành công",
-            "Xác nhận rằng thay đổi mới không làm hỏng chức năng hiện có",
-            "Cập nhật các test case nếu logic nghiệp vụ đã thay đổi"
-        ]
-
-    # 3. Lỗi cấu hình (Configuration errors)
-    elif logs and any(term in logs.lower() for term in ["configuration", "config", "yml", "yaml", ".xml", "pom.xml", "gradle"]):
-        analysis["error_type"] = "config_error"
-        analysis["analysis"] = "Phát hiện lỗi trong cấu hình pipeline hoặc cấu hình dự án"
-        analysis["suggestions"] = [
-            "Kiểm tra file .gitlab-ci.yml hoặc các file cấu hình khác",
-            "Xác nhận rằng tất cả các biến môi trường cần thiết đã được định nghĩa",
-            "Kiểm tra cú pháp trong các file cấu hình"
-        ]
-
-    # 4. Lỗi dependency
-    elif logs and any(term in logs.lower() for term in ["dependency", "could not resolve", "not found in repository", "failed to download", "npm", "yarn", "maven"]):
-        analysis["error_type"] = "dependency_error"
-        analysis["analysis"] = "Phát hiện lỗi liên quan đến dependencies"
-        analysis["suggestions"] = [
-            "Kiểm tra kết nối đến repository",
-            "Xác nhận rằng tất cả các dependencies đều có phiên bản hợp lệ",
-            "Kiểm tra xem có dependencies bị conflict không",
-            "Thử xóa cache của dependencies và tải lại"
-        ]
-
-    # 5. Lỗi triển khai (Deployment errors)
-    elif logs and any(term in logs.lower() for term in ["deploy", "deployment", "kubernetes", "docker", "container", "k8s"]):
-        analysis["error_type"] = "deployment_error"
-        analysis["analysis"] = "Phát hiện lỗi trong quá trình triển khai (deployment)"
-        analysis["suggestions"] = [
-            "Kiểm tra cấu hình triển khai và môi trường",
-            "Xác nhận quyền truy cập đến môi trường triển khai",
-            "Kiểm tra logs của container/kubernetes để biết thêm chi tiết"
-        ]
-
-    # 6. Xử lý trường hợp không xác định được lỗi cụ thể
-    else:
-        # Lấy các dòng lỗi cụ thể từ error_lines
-        specific_errors = []
-        for line in error_lines:
-            specific_errors.append(line)
-
-        if specific_errors:
-            analysis["analysis"] = f"Phát hiện các lỗi sau: {'; '.join(specific_errors[:3])}"
-            if len(specific_errors) > 3:
-                analysis["analysis"] += f" và {len(specific_errors) - 3} lỗi khác"
-
-            analysis["suggestions"] = [
-                "Kiểm tra các lỗi cụ thể được liệt kê ở trên",
-                "Xác nhận rằng code đã được kiểm thử trên môi trường local",
-                "Tham khảo tài liệu hoặc tìm kiếm online về lỗi cụ thể"
-            ]
-        else:
-            analysis["analysis"] = "Không thể xác định lỗi cụ thể từ log"
-            analysis["suggestions"] = [
-                "Kiểm tra trực tiếp trên giao diện Gitlab để xem chi tiết lỗi",
-                "Thử chạy pipeline lại nếu có thể"
-            ]
-
-    return analysis
-
 def extract_project_info_from_email(message):
     """
     Trích xuất thông tin dự án từ email Gitlab.
@@ -468,102 +370,84 @@ def analyze_gitlab_email(message):
     subject = get_email_subject(message)
 
     # Trích xuất thông tin dự án
-    project_info = extract_project_info_from_email(message)
+    project_info = extract_project_info_from_email(message) or {}
+    project_name = project_info.get("project_name", "Unknown Project")
+    commit_id = project_info.get("commit_id", "Unknown Commit")
+    environment = project_info.get("environment", "Unknown Environment")
 
-    # Trích xuất trực tiếp job URLs từ email
-    job_urls = extract_job_urls(message)
+    # Trích xuất trực tiếp job URLs từ email (now returns a dict)
+    job_url_map = extract_job_urls(message)
+    job_urls = list(job_url_map.values())
 
     # Khởi tạo kết quả phân tích
     result = {
         "sender": sender,
         "subject": subject,
-        "project_name": project_info["project_name"],
-        "commit_id": project_info["commit_id"],
-        "environment": project_info["environment"],
+        "project_name": project_name,
+        "commit_id": commit_id,
+        "environment": environment,
         "is_failed_pipeline": is_failed_pipeline_email(message),
-        "job_urls": job_urls,
-        "job_count": len(job_urls),
         "pipeline_url": extract_pipeline_url(message),  # Thêm pipeline_url
         "pipeline_url_accessible": False,  # Mặc định là False
         "accessibility_message": "Chưa kiểm tra khả năng truy cập",  # Thông báo mặc định
-        "pipeline_logs": None  # Khởi tạo giá trị rỗng cho pipeline_logs
+        "job_urls": job_url_map,  # Keep mapping for display
+        "job_count": len(job_urls) if job_urls else 0,
+        "job_logs": None  # Khởi tạo giá trị rỗng cho job_logs
     }
 
     # Nếu tìm thấy job URLs và đây là email thông báo pipeline thất bại
     if job_urls and result["is_failed_pipeline"]:
         logger.info(f"Đã trích xuất được {len(job_urls)} job URLs từ email")
-        # In ra danh sách các job URLs
-        logger.info(f"Danh sách job URLs: {job_urls}")
+        logger.info(f"Danh sách job URLs: {job_url_map}")
 
-        # Import hàm từ gitlab_auth để lấy log từ job thất bại
         from gmail_agent.gitlab_auth import find_and_get_failed_job_log
-
-        # Tìm và lấy log của job thất bại đầu tiên
         job_result = find_and_get_failed_job_log(job_urls)
 
         if job_result.get('success'):
-            # Tạo dữ liệu log cho phân tích
             job_log = job_result.get('job_log', '')
             job_info = job_result.get('job_info', {})
 
-            # Tách log thành các dòng và tìm các dòng lỗi
-            log_lines = job_log.splitlines()
-            error_lines = []
-            for line in log_lines:
-                if any(err_term in line.lower() for err_term in ['error', 'exception', 'failed', 'failure', 'lỗi']):
-                    error_lines.append(line.strip())
-
-            # Giới hạn số dòng lỗi
+            log_lines = job_log.splitlines() if job_log else []
+            error_lines = [line.strip() for line in log_lines if any(err_term in line.lower() for err_term in ['error', 'exception', 'failed', 'failure', 'lỗi'])]
             error_lines = error_lines[:20]
 
-            # Tạo dữ liệu pipeline logs cho phân tích
-            pipeline_logs = {
+            job_logs = {
                 "success": True,
                 "job_links": job_urls,
                 "error_lines": error_lines,
-                "logs": job_log[:5000] if job_log else None  # Giới hạn độ dài để tránh quá tải
+                "logs": job_log[:5000] if job_log else None
             }
 
-            result["pipeline_logs"] = pipeline_logs
+            result["job_logs"] = job_logs
             result["job_info"] = job_info
             result["job_status"] = job_result.get('job_status', 'unknown')
             result["job_name"] = job_info.get('name', 'Unknown Job')
 
-            # Phân tích lỗi dựa trên log
-            error_analysis = analyze_pipeline_errors(pipeline_logs)
-            result["error_analysis"] = error_analysis
-
             # Phân tích lỗi bằng AI nếu có thể
-            if OPEN_AI_ANALYZER_AVAILABLE:
+            if job_log:
                 try:
-                    # Sử dụng mô hình AI để phân tích lỗi
-                    project_info_for_ai = {
-                        "project_name": project_info["project_name"],
-                        "commit_id": project_info["commit_id"],
-                        "environment": project_info["environment"],
-                        "error_type": error_analysis.get("error_type", "unknown")
-                    }
-
-                    # Phân tích với AI
-                    from gmail_agent.pipeline_ai_analyzer import analyze_pipeline_error_with_ai
-                    ai_result = analyze_pipeline_error_with_ai(pipeline_logs, project_info_for_ai)
-                    if ai_result:
-                        result["ai_error_analysis"] = ai_result
+                    from gmail_agent.ai_models import AIModelService
+                    ai_service = AIModelService()
+                    prompt = ai_service._create_gitlab_analysis_prompt(job_log)
+                    ai_result = ai_service.analyze_with_prompt(prompt)
+                    if isinstance(ai_result, dict):
+                        # Chỉ lấy các trường mới: tom_tat, nguyen_nhan, goi_y_chinh_sua
+                        result["ai_error_analysis"] = {
+                            "tom_tat": ai_result.get("tom_tat", ""),
+                            "nguyen_nhan": ai_result.get("nguyen_nhan", ""),
+                            "goi_y_chinh_sua": ai_result.get("goi_y_chinh_sua", "")
+                        }
+                    else:
+                        logger.warning("AI analysis result is not a dictionary.")
                 except Exception as e:
                     logger.error(f"Lỗi khi phân tích pipeline bằng AI: {str(e)}")
-
         else:
-            # Không thể lấy được log của job
             logger.warning(f"Không thể lấy log từ job: {job_result.get('error', 'Unknown error')}")
             result["job_error"] = job_result.get('error', 'Unknown error')
-
-            # Chuẩn bị dữ liệu giả lập cho phân tích
             if MOCK_HANDLER_AVAILABLE:
                 result = integrate_mock_pipeline_logs_to_gitlab_analysis(result)
 
-    # Nếu không tìm thấy job URLs hoặc không lấy được log
     elif MOCK_HANDLER_AVAILABLE and result["is_failed_pipeline"]:
-        # Sử dụng mock data nếu không tìm thấy job URLs
         logger.info("Không tìm thấy job URLs hoặc không lấy được log, sử dụng mock data")
         result = integrate_mock_pipeline_logs_to_gitlab_analysis(result)
 

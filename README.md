@@ -73,22 +73,22 @@ python -m build
 pip install gmail_agent-0.3.1-py3-none-any.whl
 ```
 
-## Sử Dụng
+## Thiết lập môi trường
 
-Chạy script:
+1. Sao chép file `.env.template` thành `.env` và điền các thông tin API, model, prompt cần thiết.
+2. Cài đặt các thư viện:
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-```bash
-python -m gmail_agent.main
-```
+## Sử dụng
 
-Hoặc nếu đã cài đặt qua setup.py:
-
-```bash
-gmail-agent
-```
-
-Lần đầu tiên chạy script, nó sẽ mở cửa sổ trình duyệt để xác thực với tài khoản Google của bạn.
-Sau khi xác thực, bạn có thể sử dụng các chức năng tìm kiếm và phân tích email.
+- Chạy chương trình:
+  ```bash
+  python -m gmail_agent.main
+  ```
+- Kết quả phân tích email sẽ được tự động lưu vào thư mục `email_analysis_results/` dưới dạng file JSON.
+- Khi phân tích email Gitlab failed, hệ thống sẽ lấy log từ tất cả các job URL trong email và gửi toàn bộ log cho AI để phân tích tổng hợp.
 
 ## Tính Năng
 
