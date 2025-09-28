@@ -14,8 +14,8 @@ from dotenv import load_dotenv
 # Import lớp AIModelService để sử dụng các API mô hình AI
 from gmail_agent.ai_models import AIModelService
 
-# Import các hàm cần thiết từ email_ai
-from gmail_agent.email_ai import extract_email_body
+# Import các hàm cần thiết từ email_extractor
+from gmail_agent.email_extractor import extract_email_body
 
 # Thiết lập logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')

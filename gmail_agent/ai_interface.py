@@ -156,7 +156,7 @@ def analyze_email_with_custom_prompt(service):
 
         # Lấy nội dung email
         print(f"Đang tải nội dung email...")
-        from gmail_agent.email_ai import extract_email_body
+        from gmail_agent.email_extractor import extract_email_body
         from gmail_agent.gmail_operations import get_sender, get_email_subject, get_recipients
 
         message = get_email_details(service, selected_message['id'])
@@ -224,7 +224,7 @@ def handle_gitlab_emails(service):
 
     # Kiểm tra xem module phân tích AI có khả dụng không
     try:
-        from gmail_agent.open_ai_analyzer import (
+        from gmail_agent.pipeline_ai_analyzer import (
             analyze_pipeline_error_with_ai,
             list_available_ai_providers,
             format_ai_analysis_for_display
@@ -441,7 +441,7 @@ def handle_gitlab_emails(service):
                                         pass
 
                                     # Phân tích với AI
-                                    from gmail_agent.open_ai_analyzer import analyze_mockup_pipeline_with_ai
+                                    from gmail_agent.pipeline_ai_analyzer import analyze_mockup_pipeline_with_ai
                                     print(f"\nĐang phân tích lỗi {error_types[mock_index]} với {selected_provider}...")
 
                                     ai_result = analyze_mockup_pipeline_with_ai(
@@ -484,4 +484,3 @@ def handle_gitlab_emails(service):
     except ValueError:
         print("Đầu vào không hợp lệ. Vui lòng nhập một số.")
         handle_gitlab_emails(service)
-

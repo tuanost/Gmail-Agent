@@ -2,7 +2,16 @@
 
 Một dự án Python để tìm kiếm và phân tích email trong tài khoản Gmail của bạn với các tính năng AI nâng cao.
 
-## Cập Nhật Mới (25 Tháng 9, 2025)
+## Cập Nhật Mới (28 Tháng 9, 2025)
+
+- **Cập Nhật Mô Hình AI**: Hỗ trợ mô hình Google Gemini-2.5-Pro và OpenAI GPT-4o
+- **Tối Ưu Kết Nối AI**: Cải thiện việc xử lý lỗi khi hết hạn ngạch (quota) API
+- **Cấu Hình Proxy**: Thêm tùy chọn cấu hình proxy cho các môi trường doanh nghiệp
+- **Tối Ưu Cấu Trúc Mã Nguồn**: Loại bỏ các file thừa và làm sạch cấu trúc mã
+- **Nâng Cấp Dependencies**: Cập nhật các thư viện phụ thuộc lên phiên bản mới nhất
+- **Cải Thiện Tài Liệu**: Cập nhật hướng dẫn cài đặt và sử dụng
+
+## Cập Nhật Trước Đây (25 Tháng 9, 2025)
 
 - **Tối Ưu Hiển Thị Email**: Cải thiện cách hiển thị số lượng email và định dạng danh sách email
 - **Tối Ưu Hóa Mã Nguồn**: Cải thiện cấu trúc code, thêm type hints và logging để dễ dàng bảo trì hơn
@@ -19,13 +28,14 @@ Dự án được tổ chức thành các module riêng biệt để dễ bảo 
 
 - `gmail_auth.py` - Chứa các chức năng xác thực cho Gmail API
 - `gmail_operations.py` - Chứa chức năng tìm kiếm và truy xuất email
-- `email_ai.py` - Chức năng AI cơ bản cho phân tích email
+- `email_extractor.py` - Chức năng trích xuất nội dung email
 - `ai_interface.py` - Giao diện chức năng phân tích email bằng AI
 - `ai_models.py` - Tích hợp với các API mô hình AI bên ngoài (Gemini, OpenAI)
 - `prompt_ai.py` - Xử lý prompt và định dạng kết quả phân tích
 - `gitlab_auth.py` - Xác thực với Gitlab API
 - `gitlab_operations.py` - Xử lý chuyên biệt cho email từ Gitlab
-- `open_ai_analyzer.py` - Tích hợp phân tích với OpenAI
+- `pipeline_ai_analyzer.py` - Tích hợp phân tích pipeline với nhiều loại AI model
+- `ai_connector.py` - Quản lý kết nối và gọi API đến các mô hình AI khác nhau
 - `pipeline_mock_data.py` - Dữ liệu mô phỏng cho phân tích lỗi pipeline
 - `pipeline_mock_handler.py` - Xử lý dữ liệu mô phỏng cho pipeline
 - `main.py` - Chương trình chính tích hợp các module khác
@@ -60,7 +70,7 @@ python -m build
 
 # Sao chép file .whl từ thư mục dist sang máy tính khác
 # Trên máy đích, cài đặt bằng lệnh:
-pip install gmail_agent-0.3.0-py3-none-any.whl
+pip install gmail_agent-0.3.1-py3-none-any.whl
 ```
 
 ## Sử Dụng
@@ -93,6 +103,10 @@ Sau khi xác thực, bạn có thể sử dụng các chức năng tìm kiếm v
     - Phân tích chi tiết dựa trên prompt người dùng
     - Định dạng kết quả phân tích dễ đọc
     - Lưu kết quả phân tích vào file JSON
+- **Hỗ trợ đa dạng AI models**:
+    - Google Gemini (2.5-pro và các phiên bản khác)
+    - OpenAI (GPT-4o và các phiên bản khác)
+    - Ollama (Llama và các mô hình mã nguồn mở khác)
 - **Logging đầy đủ**: Theo dõi và ghi lại quá trình xử lý để dễ dàng gỡ lỗi
 
 ## Cấu Hình Môi Trường
@@ -116,6 +130,10 @@ DEFAULT_EMAIL_PROMPT="Prompt mặc định cho phân tích email..."
 
 # Prompt cho phân tích lỗi pipeline
 PIPELINE_ERROR_PROMPT="Prompt cho phân tích lỗi pipeline..."
+
+# Cấu hình proxy (nếu cần thiết)
+HTTP_PROXY=http://your_proxy:port
+HTTPS_PROXY=https://your_proxy:port
 ```
 
 ## Yêu Cầu
@@ -137,4 +155,3 @@ Mọi đóng góp đều được hoan nghênh. Vui lòng gửi Pull Request ho�
 ## Giấy Phép
 
 [MIT License](LICENSE)
-

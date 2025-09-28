@@ -41,11 +41,17 @@ def get_gitlab_proxy_info():
 
         return {'http': None, 'https': None}
 
+    # Sử dụng cấu hình proxy chung
+    proxy_http = os.getenv("PROXY_HTTP", "")
+
     # Thiết lập thông tin proxy
     proxies = {
-        'http': os.getenv("GITLAB_PROXY_HTTP", ""),
-        'https': os.getenv("GITLAB_PROXY_HTTPS", "")
+        'http': proxy_http,
+        'https': proxy_http  # Sử dụng cùng URL proxy cho cả HTTP và HTTPS
     }
+
+    # Thiết lập các biến môi trường cho thư viện requests
+    os.environ["HTTP_PROXY"] = proxy_http
 
     return proxies
 
@@ -97,7 +103,7 @@ def get_gitlab_service():
 
     # Lấy cấu hình proxy
     proxies = get_gitlab_proxy_info()
-    if proxies:
+    if proxies and proxies['http'] is not None:
         logger.info("Đang sử dụng proxy cho kết nối GitLab: %s", proxies['http'])
 
     try:
@@ -314,7 +320,7 @@ def find_and_get_failed_job_log(job_urls):
             # Phân tích log với AI
             try:
                 # Kiểm tra xem module phân tích AI có khả dụng không
-                from gmail_agent.open_ai_analyzer import analyze_pipeline_error_with_ai, list_available_ai_providers
+                from gmail_agent.pipeline_ai_analyzer import analyze_pipeline_error_with_ai, list_available_ai_providers
 
                 # Tạo dữ liệu pipeline logs cho phân tích AI
                 # Tách log thành các dòng và tìm các dòng lỗi

@@ -30,7 +30,7 @@ except ImportError:
 
 # Import module phân tích AI
 try:
-    from gmail_agent.open_ai_analyzer import (
+    from gmail_agent.pipeline_ai_analyzer import (
         analyze_pipeline_error_with_ai,
         list_available_ai_providers,
         list_ollama_models
@@ -545,7 +545,7 @@ def analyze_gitlab_email(message):
                     }
 
                     # Phân tích với AI
-                    from gmail_agent.open_ai_analyzer import analyze_pipeline_error_with_ai
+                    from gmail_agent.pipeline_ai_analyzer import analyze_pipeline_error_with_ai
                     ai_result = analyze_pipeline_error_with_ai(pipeline_logs, project_info_for_ai)
                     if ai_result:
                         result["ai_error_analysis"] = ai_result

@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="gmail-agent",
-    version="0.3.1",  # Bumped version for new dependencies
+    version="0.3.1",  # Incremented version for September 2025 update
     author="TuanNS2",
     author_email="tuanost@gmail.com",
     description="Gmail Agent with AI analysis capabilities",
@@ -23,8 +23,7 @@ setup(
         "nltk>=3.8.1",
         "scikit-learn>=1.3.0",
         "numpy>=1.25.2",
-        "google-generativeai>=0.3.0",
-        "openai>=1.3.0",
+        "google-generativeai>=0.5.0",  # Updated for newer Gemini models
         "python-dotenv>=1.0.0",
         "requests>=2.31.0",
         "beautifulsoup4>=4.13.0",
@@ -35,7 +34,6 @@ setup(
         "certifi>=2023.5.7",
         "charset-normalizer>=3.1.0",
         "idna>=3.4",
-        "python-gitlab>=3.15.0",
     ],
     entry_points={
         "console_scripts": [
